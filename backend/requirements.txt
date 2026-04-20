@@ -1,0 +1,26 @@
+# ==============================================================================
+# Backend FastAPI — Identificación de Biodiversidad
+# Instalar con: pip install -r requirements.txt
+# ==============================================================================
+
+# Framework web ASGI
+fastapi==0.115.6
+
+# Servidor ASGI (con soporte para websockets y reload en dev)
+uvicorn[standard]==0.32.1
+
+# Cliente HTTP asíncrono para llamar a Hugging Face Inference API
+httpx==0.27.2
+
+# Parsing de multipart/form-data (necesario para UploadFile en FastAPI)
+python-multipart==0.0.12
+
+# Gestión de variables de entorno con tipado estricto (Pydantic v2)
+pydantic-settings==2.6.1
+
+# Validación real del tipo MIME de archivos (no confía solo en la extensión)
+# Requiere libmagic instalado en el sistema:
+#   Windows: pip install python-magic-bin (incluye la DLL)
+#   Linux/macOS: sudo apt install libmagic1 / brew install libmagic
+python-magic==0.4.27
+python-magic-bin==0.4.14; sys_platform == "win32"

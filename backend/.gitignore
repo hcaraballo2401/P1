@@ -1,0 +1,17 @@
+# Backend FastAPI — BioLife
+
+# Archivos a ignorar en git
+.env
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
