@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from 'react';
  * - Teléfono por USB (adb reverse tcp:8000 tcp:8000): http://127.0.0.1:8000
  * - Teléfono por WiFi (misma red que la PC): http://<IP_LAN_PC>:8000
  */
-const API_BASE_URL = 'http://192.168.1.9:8000';
+const API_BASE_URL = 'http://192.168.1.5:8000';
 const BACKEND_URL = `${API_BASE_URL}/api/v1/identificacion/identificar`;
 const HEALTH_URL = `${API_BASE_URL}/health`;
 
