@@ -12,6 +12,7 @@
     "@expo/vector-icons": "^15.1.1",
     "@react-native-camera-roll/camera-roll": "^7.10.2",
     "expo": "~54.0.33",
+    "expo-av": "~16.0.8",
     "expo-constants": "~18.0.13",
     "expo-dev-client": "~6.0.20",
     "expo-linking": "~8.0.11",

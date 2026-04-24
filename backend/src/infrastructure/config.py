@@ -27,21 +27,28 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Hugging Face
+    # Hugging Face — Imagen (clasificación)
     # Soporta ambos nombres para evitar confusión entre snippets:
     # - HF_API_TOKEN (usado en este proyecto)
     # - HF_TOKEN (común en docs oficiales)
     hf_api_token: str = Field(validation_alias=AliasChoices("HF_API_TOKEN", "HF_TOKEN"))
     # URL completa opcional. Si se define, tiene prioridad sobre hf_model_id.
-    # Ejemplo:
-    #   https://router.huggingface.co/hf-inference/models/microsoft/resnet-50
     hf_api_url: str | None = None
     hf_model_id: str = "microsoft/resnet-50"
     hf_timeout_seconds: float = 30.0
 
+    # Hugging Face — Audio (transcripción ASR con Whisper)
+    # Modelo Whisper: openai/whisper-large-v3 vía proveedor fal-ai
+    hf_whisper_model_id: str = "openai/whisper-large-v3"
+
     # Validación de imágenes
     max_image_size_bytes: int = 10_485_760  # 10 MB
     allowed_mime_types: str = "image/jpeg,image/png,image/webp"
+
+    # Validación de audio
+    max_audio_size_bytes: int = 10_485_760  # 10 MB
+    audio_min_duration_seconds: float = 3.0
+    audio_max_duration_seconds: float = 5.0
 
     # Lógica de identificación
     confidence_threshold: float = 0.50

@@ -19,7 +19,8 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera"
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to access your camera",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to access your microphone for recording audio"
       }
     },
     "android": {
@@ -32,7 +33,7 @@
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.CAMERA",
-        "android.permission.CAMERA"
+        "android.permission.RECORD_AUDIO"
       ],
       "package": "com.anonymous.P1"
     },
@@ -41,7 +42,6 @@
     },
     "plugins": [
       "expo-router",
-      "react-native-vision-camera",
       [
         "react-native-vision-camera",
         {
