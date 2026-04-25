@@ -16,11 +16,9 @@ import { Audio } from 'expo-av';
 
 /**
  * Backend de identificación (FastAPI).
- * - Emulador Android:                     http://10.0.2.2:8000
- * - Teléfono por USB (adb reverse):        http://127.0.0.1:8000
- * - Teléfono por WiFi (misma red que PC):  http://<IP_LAN_PC>:8000
+ * Desplegado en Render.
  */
-const API_BASE_URL = 'http://10.87.37.127:8000';
+const API_BASE_URL = 'https://p1-q8lf.onrender.com';
 const BACKEND_URL = `${API_BASE_URL}/api/v1/identificacion/identificar`;
 const TRANSCRIPCION_URL = `${API_BASE_URL}/api/v1/identificacion/transcribir`;
 const HEALTH_URL = `${API_BASE_URL}/health`;
@@ -182,7 +180,7 @@ export default function SearchScreen() {
       const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       Alert.alert(
         'No se alcanzó el backend',
-        `${msg}\n\nAsegúrate: uvicorn en 0.0.0.0:8000, adb reverse tcp:8000 tcp:8000.`,
+        `${msg}\n\nAsegúrate de tener conexión a Internet y que el backend en Render esté activo.`,
       );
     } finally {
       setIsTestingApi(false);
