@@ -31,3 +31,4 @@ huggingface_hub>=0.23.0
 
 # Parseo avanzado de cabeceras de audio (necesario ya que Android soporta M4A/3GP nativo)
 mutagen==1.47.0
+requests==2.31.0

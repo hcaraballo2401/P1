@@ -59,7 +59,7 @@ app = FastAPI(
 # ==============================================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"] if settings.app_env == "development" else [],
+    allow_origins=["*"],  # Modificado para evitar bloqueos en despliegue Render
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -97,8 +97,13 @@ app.include_router(api_router)
 
 
 # ==============================================================================
-# Health Check
+# Health Check y Ruta Raiz
 # ==============================================================================
+@app.get("/")
+def read_root():
+    return {"status": "Backend en Render funcionando"}
+
+
 @app.get("/health", tags=["Sistema"], summary="Estado del servidor")
 async def health_check() -> dict:
     """Verifica que el servidor está operativo."""
