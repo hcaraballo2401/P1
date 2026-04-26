@@ -1,17 +1,17 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
   Text,
   Image,
   Animated,
-  Dimensions,
   StatusBar,
   TouchableOpacity,
   FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import HeaderBuscador from '../components/HeaderBuscador';
 
 import {
   COLORS,
@@ -75,12 +75,30 @@ function SkeletonScreen({ shimmerAnim }: { shimmerAnim: Animated.Value }) {
 // Pantalla Principal
 // ─────────────────────────────────────────────────────────────────────────────
 
+
 export default function SpeciesListScreen() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(true);
   const [speciesList, setSpeciesList] = useState<SpeciesDisplay[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
   const shimmerAnim = useRef(new Animated.Value(0)).current;
+
+  /**
+   * filteredList — derivado de speciesList filtrado por la consulta del buscador.
+   * Busca en: nombre común, nombre científico y reino (todo en minúsculas).
+   * useMemo evita recalcular en cada render cuando la query no cambia.
+   */
+  const filteredList = useMemo<SpeciesDisplay[]>(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return speciesList;
+    return speciesList.filter((s) => {
+      const inCommon     = s.commonName.toLowerCase().includes(q);
+      const inScientific = s.scientificName.toLowerCase().includes(q);
+      const inKingdom    = (s.kingdom ?? '').toLowerCase().includes(q);
+      return inCommon || inScientific || inKingdom;
+    });
+  }, [speciesList, searchQuery]);
 
   const startShimmer = useCallback(() => {
     Animated.loop(
@@ -171,7 +189,7 @@ export default function SpeciesListScreen() {
             <Text style={styles.kingdomText}>{item.kingdom ?? 'N/A'}</Text>
           </View>
         </View>
-        
+
         <TouchableOpacity
           style={styles.infoButton}
           onPress={() => handlePressInfo(item)}
@@ -189,9 +207,7 @@ export default function SpeciesListScreen() {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Biodiversidad de Bolívar</Text>
-        </View>
+        <HeaderBuscador onSearch={setSearchQuery} />
         <SkeletonScreen shimmerAnim={shimmerAnim} />
       </View>
     );
@@ -202,6 +218,7 @@ export default function SpeciesListScreen() {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+        <HeaderBuscador onSearch={setSearchQuery} />
         <View style={styles.centerState}>
           <Ionicons name="cloud-offline-outline" size={48} color={COLORS.textMuted} />
           <Text style={styles.errorText}>{error ?? 'Sin datos'}</Text>
@@ -217,21 +234,31 @@ export default function SpeciesListScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
-      
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Biodiversidad de Bolívar</Text>
-        <Text style={styles.headerSubtitle}>Explora las especies de la región</Text>
-      </View>
 
-      <FlatList
-        data={speciesList}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContent}
-        showsVerticalScrollIndicator={false}
-        initialNumToRender={10}
-        windowSize={5}
-      />
+      <HeaderBuscador onSearch={setSearchQuery} />
+
+      {/* Feedback cuando la búsqueda no arroja resultados */}
+      {filteredList.length === 0 && searchQuery.trim().length > 0 ? (
+        <View style={styles.centerState}>
+          <Ionicons name="search-outline" size={48} color={COLORS.textMuted} />
+          <Text style={styles.errorText}>
+            Sin resultados para «{searchQuery.trim()}»
+          </Text>
+          <Text style={styles.errorSubText}>
+            Intenta con el nombre común, científico o reino.
+          </Text>
+        </View>
+      ) : (
+        <FlatList
+          data={filteredList}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderItem}
+          contentContainerStyle={styles.listContent}
+          showsVerticalScrollIndicator={false}
+          initialNumToRender={10}
+          windowSize={5}
+        />
+      )}
     </View>
   );
 }
@@ -245,24 +272,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 16,
-    backgroundColor: COLORS.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: COLORS.primary,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    marginTop: 4,
-  },
+  // (header estático eliminado — reemplazado por <HeaderBuscador />)
   listContent: {
     padding: 16,
     paddingBottom: 48,
@@ -355,6 +365,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 22,
+  },
+  errorSubText: {
+    color: COLORS.textMuted,
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
   },
   retryButton: {
     paddingHorizontal: 24,

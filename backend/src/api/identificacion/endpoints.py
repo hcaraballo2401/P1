@@ -1,5 +1,5 @@
 """
-Endpoints del dominio de Identificación Animal y Transcripción de Audio.
+Endpoints del dominio de Identificación Animal.
 
 Responsabilidad única: Recibir la petición HTTP, validar el archivo,
 coordinar el flujo del caso de uso, y retornar la respuesta al cliente.
@@ -8,7 +8,6 @@ NO contiene lógica de negocio. Solo traduce entre HTTP y el dominio.
 
 Endpoints:
     POST /identificar  — Imagen → identificación de especie (IA visual)
-    POST /transcribir  — Audio WAV → transcripción de voz (Whisper large-v3)
 """
 
 import logging
@@ -19,21 +18,15 @@ from src.api.identificacion.schemas import (
     CandidatoEspecieSchema,
     IdentificacionResponseSchema,
 )
-from src.api.identificacion.transcripcion_schemas import TranscripcionResponseSchema
 from src.identificacion_animal.casos_de_uso import identificar_animal
-from src.identificacion_animal.transcripcion_casos_de_uso import transcribir_audio_especie
 from src.infrastructure.config import get_settings
 from src.infrastructure.exceptions import (
     AppError,
-    AudioTooLargeError,
     ImageTooLargeError,
-    InvalidAudioError,
     InvalidImageError,
 )
 from src.infrastructure.huggingface_client import clasificar_imagen
 from src.infrastructure.image_validation import detectar_mime_type
-from src.infrastructure.audio_validation import validar_audio_wav
-from src.infrastructure.whisper_client import transcribir_audio
 
 logger = logging.getLogger(__name__)
 
@@ -152,104 +145,6 @@ async def identificar_animal_endpoint(
             CandidatoEspecieSchema(etiqueta=alt.etiqueta, confianza=alt.confianza)
             for alt in resultado.alternativas
         ],
-        requiere_revision_humana=resultado.requiere_revision_humana,
-        modelo_usado=resultado.modelo_usado,
-    )
-
-
-@router.post(
-    "/transcribir",
-    response_model=TranscripcionResponseSchema,
-    summary="Transcribir audio con Whisper large-v3",
-    description=(
-        "Recibe un archivo de audio WAV (PCM, mono, 16 kHz) de entre 3 y 5 segundos "
-        "y retorna la transcripción generada por openai/whisper-large-v3 vía fal-ai. "
-        "Útil para registrar observaciones de campo por voz."
-    ),
-    responses={
-        200: {"description": "Transcripción exitosa."},
-        413: {"description": "Archivo de audio demasiado grande (> 10 MB)."},
-        422: {"description": "Audio inválido, formato incorrecto o duración fuera de rango (3-5s)."},
-        502: {"description": "Error al comunicarse con el servicio de transcripción (Hugging Face)."},
-    },
-)
-async def transcribir_audio_endpoint(
-    archivo: UploadFile = File(
-        ...,
-        description=(
-            "Audio WAV PCM (mono, 16 kHz recomendado). "
-            "Duración: mínimo 3 segundos, máximo 5 segundos. Tamaño máximo: 10 MB."
-        ),
-    ),
-) -> TranscripcionResponseSchema:
-    """
-    POST /api/v1/identificacion/transcribir
-
-    Flujo completo:
-        1. Lee el binario del archivo de audio.
-        2. Valida el tamaño máximo permitido (MAX_AUDIO_SIZE_BYTES).
-        3. Valida el formato WAV y la duración (3-5s) inspeccionando la cabecera RIFF.
-        4. Llama al caso de uso `transcribir_audio_especie` con Whisper large-v3.
-        5. Mapea el resultado al schema de respuesta.
-
-    El campo `requiere_revision_humana` es True si el texto transcripto está vacío
-    (audio sin speech inteligible) o si el modelo no pudo procesar el audio.
-    """
-    settings = get_settings()
-
-    # --- Paso 1: Leer el binario ---
-    audio_bytes = await archivo.read()
-
-    # --- Paso 2: Validar tamaño ---
-    if len(audio_bytes) > settings.max_audio_size_bytes:
-        max_mb = settings.max_audio_size_bytes / 1_048_576
-        logger.warning(
-            "Audio rechazado por tamaño | tamaño=%d bytes | límite=%d bytes",
-            len(audio_bytes),
-            settings.max_audio_size_bytes,
-        )
-        raise AudioTooLargeError(
-            message=f"El audio excede el tamaño máximo permitido de {max_mb:.0f} MB."
-        )
-
-    # --- Paso 3: Validar formato WAV y duración (3-5s) ---
-    try:
-        duracion = validar_audio_wav(audio_bytes)
-    except InvalidAudioError:
-        raise  # Re-propagar con el mensaje descriptivo de la validación
-    except Exception as exc:
-        logger.error("Error inesperado al validar el audio: %s", exc)
-        raise InvalidAudioError(
-            message="No se pudo validar el formato del audio enviado."
-        ) from exc
-
-    logger.info(
-        "Audio recibido y validado | nombre=%s | tamaño=%d bytes | duración=%.2fs",
-        archivo.filename,
-        len(audio_bytes),
-        duracion,
-    )
-
-    # --- Paso 4: Ejecutar el caso de uso de transcripción ---
-    try:
-        resultado = await transcribir_audio_especie(
-            audio_bytes=audio_bytes,
-            transcriptor_fn=transcribir_audio,
-        )
-    except AppError as exc:
-        logger.error(
-            "AppError durante transcripción | tipo=%s | mensaje=%s",
-            type(exc).__name__,
-            exc.message,
-        )
-        raise HTTPException(
-            status_code=exc.status_code,
-            detail=exc.message,
-        ) from exc
-
-    # --- Paso 5: Mapear dominio → schema de respuesta ---
-    return TranscripcionResponseSchema(
-        texto=resultado.texto,
         requiere_revision_humana=resultado.requiere_revision_humana,
         modelo_usado=resultado.modelo_usado,
     )
