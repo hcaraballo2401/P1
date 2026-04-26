@@ -1,7 +1,15 @@
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useEffect } from 'react';
 
 export default function AppLayout() {
+  // Ping the backend on app start to prevent Render and HuggingFace cold starts
+  useEffect(() => {
+    fetch('https://p1-q8lf.onrender.com/health/hf')
+      .then(res => console.log('✅ Backend Warmed Up:', res.status))
+      .catch(err => console.error('❌ Failed to warm up backend:', err));
+  }, []);
+
   return (
     <Tabs
       screenOptions={{

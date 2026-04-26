@@ -141,9 +141,10 @@ async def health_huggingface() -> dict:
         },
     }
 
-    # PNG 1x1 válido para probar inferencia sin depender de archivos locales.
-    tiny_png = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2eQAAAAASUVORK5CYII="
+    # JPEG 1x1 (RGB) válido para probar inferencia sin depender de archivos locales.
+    # Modelos como resnet-50 requieren 3 canales (RGB).
+    tiny_image = base64.b64decode(
+        "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
     )
 
     try:
@@ -157,8 +158,8 @@ async def health_huggingface() -> dict:
 
             inference_response = await client.post(
                 hf_url,
-                headers={**headers, "Content-Type": "image/png"},
-                content=tiny_png,
+                headers={**headers, "Content-Type": "image/jpeg"},
+                content=tiny_image,
             )
             inference_status = inference_response.status_code
             result["inference_check"]["status_code"] = inference_status
