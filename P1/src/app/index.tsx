@@ -12,6 +12,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import HeaderBuscador from '../components/HeaderBuscador';
+import WeatherWidget from '../components/WeatherWidget';
 
 import {
   COLORS,
@@ -208,6 +209,7 @@ export default function SpeciesListScreen() {
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
         <HeaderBuscador onSearch={setSearchQuery} />
+        <WeatherWidget />
         <SkeletonScreen shimmerAnim={shimmerAnim} />
       </View>
     );
@@ -219,6 +221,7 @@ export default function SpeciesListScreen() {
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
         <HeaderBuscador onSearch={setSearchQuery} />
+        <WeatherWidget />
         <View style={styles.centerState}>
           <Ionicons name="cloud-offline-outline" size={48} color={COLORS.textMuted} />
           <Text style={styles.errorText}>{error ?? 'Sin datos'}</Text>
@@ -236,6 +239,8 @@ export default function SpeciesListScreen() {
       <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
 
       <HeaderBuscador onSearch={setSearchQuery} />
+
+      {!searchQuery && <WeatherWidget />}
 
       {/* Feedback cuando la búsqueda no arroja resultados */}
       {filteredList.length === 0 && searchQuery.trim().length > 0 ? (
