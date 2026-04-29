@@ -32,3 +32,9 @@ huggingface_hub>=0.23.0
 # Parseo avanzado de cabeceras de audio (necesario ya que Android soporta M4A/3GP nativo)
 mutagen==1.47.0
 requests==2.31.0
+
+# Cliente para YouTube Data API v3
+google-api-python-client==2.126.0
+
+# Caché en memoria para optimizar peticiones
+cachetools==5.3.3
