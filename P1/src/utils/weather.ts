@@ -69,10 +69,14 @@ export function mapWeatherIcon(iconCode: string): any {
  */
 const MOCK_WEATHER: WeatherData = {
   temp: 0,
+  tempMax: 0,
+  tempMin: 0,
   condition: 'Unknown',
   description: 'Sin conexión',
   icon: '01d',
   humidity: 0,
+  windSpeed: 0,
+  precipitation: 0,
   locationName: 'Ubicación...',
   timestamp: Date.now(),
 };
