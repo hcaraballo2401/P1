@@ -39,25 +39,25 @@ async function getCurrentLocation() {
 }
 
 export function mapWeatherIcon(iconCode: string): any {
-  // Mapeo extendido para cubrir todos los estados de OpenWeatherMap
+  // Mapeo corregido para Ionicons (evitando nombres no existentes que causan el signo "?")
   const map: Record<string, string> = {
     '01d': 'sunny',
     '01n': 'moon',
     '02d': 'partly-sunny',
     '02n': 'cloudy-night',
-    '03d': 'cloud', // Nubes dispersas
-    '03n': 'cloud',
-    '04d': 'clouds', // Nubes rotas / nublado
-    '04n': 'clouds',
-    '09d': 'rainy', // Lluvia ligera
+    '03d': 'cloudy', // Nubes dispersas
+    '03n': 'cloudy',
+    '04d': 'cloudy', // Muy nuboso
+    '04n': 'cloudy',
+    '09d': 'rainy',
     '09n': 'rainy',
-    '10d': 'rainy', // Lluvia moderada
+    '10d': 'rainy',
     '10n': 'rainy',
     '11d': 'thunderstorm',
     '11n': 'thunderstorm',
     '13d': 'snow',
     '13n': 'snow',
-    '50d': 'water', // Niebla / Neblina
+    '50d': 'water',
     '50n': 'water',
   };
 
@@ -92,7 +92,7 @@ export async function fetchCurrentWeather(): Promise<WeatherData> {
     const coords = await getCurrentLocation();
 
     const response = await fetch(
-      `${WEATHER_API_BASE}/weather?lat=${coords.latitude}&lon=${coords.longitude}&appid=${WEATHER_API_KEY}&units=metric&lang=es`
+      `${WEATHER_API_BASE}/weather?lat=${coords.latitude}&lon=${coords.longitude}&appid=${WEATHER_API_KEY}&units=metric&lang=es&_t=${Date.now()}`
     );
 
     if (!response.ok) {
@@ -106,7 +106,7 @@ export async function fetchCurrentWeather(): Promise<WeatherData> {
       tempMax: Math.round(json.main.temp_max),
       tempMin: Math.round(json.main.temp_min),
       condition: json.weather[0].main,
-      description: json.weather[0].description,
+      description: json.weather[0].description.replace(/nuboso/gi, 'nublado'),
       icon: json.weather[0].icon,
       humidity: json.main.humidity,
       windSpeed: Math.round(json.wind.speed * 3.6), // Convertir m/s a km/h
