@@ -6,9 +6,9 @@ import {
   FlatList, 
   TouchableOpacity, 
   ActivityIndicator, 
-  SafeAreaView, 
   StatusBar 
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import WildlifePlayer from '../components/WildlifePlayer';
 
