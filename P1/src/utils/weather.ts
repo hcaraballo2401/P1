@@ -4,8 +4,8 @@ import * as Location from 'expo-location';
 // Configuración y Constantes
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Configuración de la API usando variables de entorno de Expo
-const WEATHER_API_KEY = process.env.EXPO_PUBLIC_WEATHER_API_KEY;
+// Configuración de la API con la clave fija
+const WEATHER_API_KEY = '8d3235d2228cb82b024c170bda7f0720';
 const WEATHER_API_BASE = 'https://api.openweathermap.org/data/2.5';
 
 export interface WeatherData {
