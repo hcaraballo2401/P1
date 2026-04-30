@@ -1,5 +1,4 @@
 import * as Location from 'expo-location';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Configuración y Constantes
@@ -8,7 +7,6 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // Configuración de la API usando variables de entorno de Expo
 const WEATHER_API_KEY = process.env.EXPO_PUBLIC_WEATHER_API_KEY;
 const WEATHER_API_BASE = 'https://api.openweathermap.org/data/2.5';
-const WEATHER_STORAGE_KEY = '@biolife_weather_cache';
 
 export interface WeatherData {
   temp: number;
@@ -81,6 +79,9 @@ const MOCK_WEATHER: WeatherData = {
   timestamp: Date.now(),
 };
 
+// Cache simple en memoria para evitar llamadas excesivas en la misma sesión
+let inMemoryWeatherCache: WeatherData | null = null;
+
 export async function fetchCurrentWeather(): Promise<WeatherData> {
   try {
     // Si no hay API Key, usamos mock para evitar errores de desarrollo
@@ -115,12 +116,11 @@ export async function fetchCurrentWeather(): Promise<WeatherData> {
       timestamp: Date.now(),
     };
 
-    await AsyncStorage.setItem(WEATHER_STORAGE_KEY, JSON.stringify(weather));
+    inMemoryWeatherCache = weather;
     return weather;
   } catch (error) {
-    const cachedData = await AsyncStorage.getItem(WEATHER_STORAGE_KEY);
-    if (cachedData) {
-      return JSON.parse(cachedData);
+    if (inMemoryWeatherCache) {
+      return inMemoryWeatherCache;
     }
     // Fallback final a mock si nunca hubo cache
     return MOCK_WEATHER;
