@@ -3,16 +3,16 @@ import {
   StyleSheet,
   View,
   Text,
-  Image,
   Animated,
   StatusBar,
   TouchableOpacity,
-  FlatList,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import HeaderBuscador from '../components/HeaderBuscador';
 import WeatherWidget from '../components/WeatherWidget';
+import SpeciesCard from '../components/SpeciesCard';
 
 import {
   COLORS,
@@ -29,18 +29,19 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface SkeletonBarProps {
-  widthPercent: number;
+  widthPercent: number | string;
   height: number;
   marginTop: number;
   borderRadius: number;
   shimmerAnim: Animated.Value;
+  margin?: number;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sub-componentes
 // ─────────────────────────────────────────────────────────────────────────────
 
-function SkeletonBar({ widthPercent, height, marginTop, borderRadius, shimmerAnim }: SkeletonBarProps) {
+function SkeletonBar({ widthPercent, height, marginTop, borderRadius, margin, shimmerAnim }: SkeletonBarProps) {
   const opacity = shimmerAnim.interpolate({
     inputRange: [0, 0.5, 1],
     outputRange: [0.3, 0.7, 0.3],
@@ -50,32 +51,34 @@ function SkeletonBar({ widthPercent, height, marginTop, borderRadius, shimmerAni
     <Animated.View
       style={[
         styles.skeletonBar,
-        { width: `${widthPercent}%`, height, marginTop, borderRadius, opacity },
+        { width: (typeof widthPercent === 'string' ? widthPercent : `${widthPercent}%`) as any, height, marginTop, borderRadius, margin, opacity },
       ]}
     />
   );
 }
 
 const SKELETON_LAYOUT: Omit<SkeletonBarProps, 'shimmerAnim'>[] = [
-  { widthPercent: 95, height: 280, marginTop: 16, borderRadius: 16 },
-  { widthPercent: 95, height: 280, marginTop: 16, borderRadius: 16 },
-  { widthPercent: 95, height: 280, marginTop: 16, borderRadius: 16 },
+  { widthPercent: '46%', height: 220, marginTop: 10, margin: 6, borderRadius: 16 },
+  { widthPercent: '46%', height: 220, marginTop: 10, margin: 6, borderRadius: 16 },
+  { widthPercent: '46%', height: 220, marginTop: 10, margin: 6, borderRadius: 16 },
+  { widthPercent: '46%', height: 220, marginTop: 10, margin: 6, borderRadius: 16 },
 ];
 
 function SkeletonScreen({ shimmerAnim }: { shimmerAnim: Animated.Value }) {
   return (
     <View style={styles.contentArea}>
-      {SKELETON_LAYOUT.map((bar, i) => (
-        <SkeletonBar key={i} {...bar} shimmerAnim={shimmerAnim} />
-      ))}
+      <View style={styles.gridContainer}>
+        {SKELETON_LAYOUT.map((bar, i) => (
+          <SkeletonBar key={i} {...bar} shimmerAnim={shimmerAnim} />
+        ))}
+      </View>
     </View>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pantalla Principal
+// Pantalla Principal (Home)
 // ─────────────────────────────────────────────────────────────────────────────
-
 
 export default function SpeciesListScreen() {
   const router = useRouter();
@@ -85,11 +88,6 @@ export default function SpeciesListScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
-  /**
-   * filteredList — derivado de speciesList filtrado por la consulta del buscador.
-   * Busca en: nombre común, nombre científico y reino (todo en minúsculas).
-   * useMemo evita recalcular en cada render cuando la query no cambia.
-   */
   const filteredList = useMemo<SpeciesDisplay[]>(() => {
     const q = searchQuery.trim().toLowerCase();
     if (!q) return speciesList;
@@ -100,6 +98,9 @@ export default function SpeciesListScreen() {
       return inCommon || inScientific || inKingdom;
     });
   }, [speciesList, searchQuery]);
+
+  // Tomamos solo las primeras 4 especies para mostrar en el grid del Home
+  const topSpecies = filteredList.slice(0, 4);
 
   const startShimmer = useCallback(() => {
     Animated.loop(
@@ -155,51 +156,17 @@ export default function SpeciesListScreen() {
     fetchSpecies();
   }, [startShimmer, fetchSpecies]);
 
-  const handlePressInfo = (item: SpeciesDisplay) => {
-    // Navigate to information.tsx passing the taxonId
-    router.push({
-      pathname: '/information',
-      params: { taxonId: item.id.toString(), count: item.count.toString() },
-    });
-  };
-
-  const renderItem = ({ item }: { item: SpeciesDisplay }) => (
-    <View style={styles.cardContainer}>
-      {item.photoUrl ? (
-        <Image
-          source={{ uri: item.photoUrl }}
-          style={styles.cardImage}
-          resizeMode="cover"
-        />
-      ) : (
-        <View style={[styles.cardImage, styles.photoPlaceholder]}>
-          <Ionicons name="leaf-outline" size={64} color={COLORS.textMuted} />
-        </View>
-      )}
-
-      {/* Gradiente o capa oscura sobre la imagen para asegurar legibilidad */}
-      <View style={styles.cardOverlay}>
-        <View style={styles.cardInfo}>
-          <Text style={styles.commonName} numberOfLines={2}>
-            {item.commonName}
-          </Text>
-          <Text style={styles.scientificName} numberOfLines={1}>
-            {item.scientificName}
-          </Text>
-          <View style={styles.kingdomBadge}>
-            <Text style={styles.kingdomText}>{item.kingdom ?? 'N/A'}</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={styles.infoButton}
-          onPress={() => handlePressInfo(item)}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="information-circle" size={20} color={COLORS.primary} style={{ marginRight: 6 }} />
-          <Text style={styles.infoButtonText}>Consultar más información</Text>
-        </TouchableOpacity>
-      </View>
+  const renderTopMenu = () => (
+    <View style={styles.topMenu}>
+      <TouchableOpacity style={[styles.menuTab, styles.menuTabActive]}>
+        <Text style={[styles.menuTabText, styles.menuTabTextActive]}>Todo</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.menuTab} onPress={() => router.push('/explore' as any)}>
+        <Text style={styles.menuTabText}>Explorar</Text>
+      </TouchableOpacity>
+      <TouchableOpacity style={styles.menuTab}>
+        <Text style={styles.menuTabText}>Regiones</Text>
+      </TouchableOpacity>
     </View>
   );
 
@@ -209,6 +176,7 @@ export default function SpeciesListScreen() {
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
         <HeaderBuscador onSearch={setSearchQuery} />
+        {renderTopMenu()}
         <WeatherWidget />
         <SkeletonScreen shimmerAnim={shimmerAnim} />
       </View>
@@ -221,6 +189,7 @@ export default function SpeciesListScreen() {
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
         <HeaderBuscador onSearch={setSearchQuery} />
+        {renderTopMenu()}
         <WeatherWidget />
         <View style={styles.centerState}>
           <Ionicons name="cloud-offline-outline" size={48} color={COLORS.textMuted} />
@@ -233,37 +202,48 @@ export default function SpeciesListScreen() {
     );
   }
 
-  // ── Render: Lista ──
+  // ── Render: Home Content ──
   return (
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
 
       <HeaderBuscador onSearch={setSearchQuery} />
+      {renderTopMenu()}
 
-      {!searchQuery && <WeatherWidget />}
+      <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+        {!searchQuery && <WeatherWidget />}
 
-      {/* Feedback cuando la búsqueda no arroja resultados */}
-      {filteredList.length === 0 && searchQuery.trim().length > 0 ? (
-        <View style={styles.centerState}>
-          <Ionicons name="search-outline" size={48} color={COLORS.textMuted} />
-          <Text style={styles.errorText}>
-            Sin resultados para «{searchQuery.trim()}»
-          </Text>
-          <Text style={styles.errorSubText}>
-            Intenta con el nombre común, científico o reino.
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={filteredList}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          initialNumToRender={10}
-          windowSize={5}
-        />
-      )}
+        {/* Feedback cuando la búsqueda no arroja resultados */}
+        {filteredList.length === 0 && searchQuery.trim().length > 0 ? (
+          <View style={styles.centerState}>
+            <Ionicons name="search-outline" size={48} color={COLORS.textMuted} />
+            <Text style={styles.errorText}>
+              Sin resultados para «{searchQuery.trim()}»
+            </Text>
+            <Text style={styles.errorSubText}>
+              Intenta con el nombre común, científico o reino.
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.sectionContainer}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Avistamientos</Text>
+              <TouchableOpacity onPress={() => router.push('/explore' as any)}>
+                <Ionicons name="arrow-forward" size={24} color={COLORS.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.gridContainer}>
+              {topSpecies.map((item) => (
+                <SpeciesCard key={item.id} item={item} />
+              ))}
+            </View>
+          </View>
+        )}
+        
+        {/* Espacio extra abajo */}
+        <View style={{ height: 40 }} />
+      </ScrollView>
     </View>
   );
 }
@@ -277,86 +257,49 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-  // (header estático eliminado — reemplazado por <HeaderBuscador />)
-  listContent: {
-    padding: 16,
-    paddingBottom: 48,
-    gap: 20,
-  },
-  cardContainer: {
-    width: '100%',
-    height: 380, // Tarjetas grandes como en la imagen de referencia
-    borderRadius: 16,
-    overflow: 'hidden',
-    backgroundColor: COLORS.surfaceAlt,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  cardImage: {
-    width: '100%',
-    height: '100%',
-    position: 'absolute',
-  },
-  photoPlaceholder: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: COLORS.surfaceAlt,
-  },
-  cardOverlay: {
-    flex: 1,
-    justifyContent: 'flex-end',
-    backgroundColor: 'rgba(0, 0, 0, 0.4)', // Oscurecer toda la imagen un poco
-    padding: 16,
-  },
-  cardInfo: {
-    marginBottom: 16,
-    backgroundColor: 'rgba(10, 10, 10, 0.75)', // Fondo semitransparente para el texto
-    padding: 12,
-    borderRadius: 12,
-  },
-  commonName: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: COLORS.textPrimary,
-    marginBottom: 4,
-  },
-  scientificName: {
-    fontSize: 16,
-    fontStyle: 'italic',
-    color: COLORS.textSecondary,
-    marginBottom: 8,
-  },
-  kingdomBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: COLORS.primaryMuted,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  kingdomText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: COLORS.primary,
-    textTransform: 'uppercase',
-  },
-  infoButton: {
+  topMenu: {
     flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(20, 20, 20, 0.9)',
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    borderRadius: 12,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginBottom: 10,
+    gap: 16,
   },
-  infoButtonText: {
+  menuTab: {
+    paddingVertical: 8,
+  },
+  menuTabActive: {
+    borderBottomWidth: 2,
+    borderBottomColor: COLORS.primary,
+  },
+  menuTabText: {
+    fontSize: 16,
+    color: COLORS.textSecondary,
+    fontWeight: '600',
+  },
+  menuTabTextActive: {
     color: COLORS.textPrimary,
-    fontSize: 14,
-    fontWeight: '700',
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
   },
-
+  sectionContainer: {
+    paddingHorizontal: 10,
+    marginTop: 20,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+    paddingHorizontal: 6,
+  },
+  sectionTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: COLORS.textPrimary,
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  
   // ── Centro de estados (error / vacío) ──
   centerState: {
     flex: 1,
@@ -364,6 +307,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
     padding: 32,
+    marginTop: 40,
   },
   errorText: {
     color: COLORS.textSecondary,
@@ -392,11 +336,10 @@ const styles = StyleSheet.create({
 
   // ── Skeleton ──
   contentArea: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 10,
     paddingTop: 8,
   },
   skeletonBar: {
     backgroundColor: COLORS.skeletonHighlight,
-    alignSelf: 'center',
   },
 });

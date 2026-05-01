@@ -66,6 +66,18 @@ export default function AppLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="explore"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="information"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
