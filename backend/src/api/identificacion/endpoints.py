@@ -58,7 +58,7 @@ async def consultar_gemma(imagen_bytes: bytes, mime_type: str, api_key: str | No
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": "Identifica el animal de la imagen. Responde estrictamente el Nombre científico: [Nombre]"
+                                    "text": "Actúa como un experto en zoología y biodiversidad de la región de la Guayana Venezolana. Identifica el animal de esta imagen, priorizando especies nativas de los estados Bolívar, Amazonas y Delta Amacuro. Responde estrictamente en el siguiente formato, sin texto adicional:\nNombre científico: [Nombre]"
                                 },
                                 {
                                     "type": "image_url",
