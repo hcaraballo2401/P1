@@ -5,7 +5,11 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
+  Image,
+  ScrollView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
@@ -31,6 +35,7 @@ interface IdentificacionResponse {
 // ─── Componente principal ─────────────────────────────────────────────────────
 
 export default function SearchScreen() {
+  const router = useRouter();
   // ── Cámara ──
   const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
   const backDevice = useCameraDevice('back');
@@ -42,6 +47,12 @@ export default function SearchScreen() {
 
   // ── API Health ──
   const [isTestingApi, setIsTestingApi] = useState<boolean>(false);
+
+  // ── Resultados de Identificación ──
+  const [identificationResult, setIdentificationResult] = useState<{
+    photoPath: string;
+    result: IdentificacionResponse;
+  } | null>(null);
 
   // ─── Efectos ──────────────────────────────────────────────────────────────
   
@@ -109,13 +120,12 @@ export default function SearchScreen() {
       }
 
       const result: IdentificacionResponse = await response.json();
-      const confidencePercent = (result.especie_principal.confianza * 100).toFixed(1);
-      const gemmaText = result.gemma_respuesta || "Sin respuesta del modelo secundario.";
       
-      Alert.alert(
-        `Resultados de Identificación`,
-        `[ResNet-50]\nAnimal: ${result.especie_principal.etiqueta}\nConfianza: ${confidencePercent}%${result.requiere_revision_humana ? '\nRequiere revisión humana.' : ''}\n\n[Gemma-4-31B-it]\n${gemmaText}`
-      );
+      setIdentificationResult({
+        photoPath: photo.path,
+        result,
+      });
+
     } catch (error) {
       const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
       Alert.alert('No se pudo identificar el animal', message);
@@ -159,6 +169,88 @@ export default function SearchScreen() {
       </View>
     );
   }
+
+  // ─── Renderizado de Resultados ────────────────────────────────────────────
+  const renderResults = () => {
+    if (!identificationResult) return null;
+
+    const { photoPath, result } = identificationResult;
+    const confidencePercent = (result.especie_principal.confianza * 100).toFixed(1);
+    
+    // Parsear la respuesta de Gemma para la tabla
+    const gemmaText = result.gemma_respuesta || "";
+    const gemmaLines = gemmaText.split('\n').filter(l => l.trim().length > 0);
+    const gemmaData = gemmaLines.map(l => {
+      const parts = l.split(':');
+      if (parts.length >= 2) {
+        return { label: parts[0].trim(), value: parts.slice(1).join(':').trim() };
+      }
+      return { label: 'Dato IA', value: l.trim() };
+    });
+
+    const tableData = [
+      { label: 'Modelo Local', value: result.especie_principal.etiqueta },
+      { label: 'Confianza', value: `${confidencePercent}%` },
+      ...gemmaData
+    ];
+
+    const handleMoreInfo = () => {
+      // Extraemos el nombre científico de la respuesta
+      let nameToSearch = "";
+      const match = gemmaText.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
+      
+      if (match && match[1]) {
+        nameToSearch = match[1].trim();
+      } else {
+        // Fallback si la IA no siguió el formato exacto
+        nameToSearch = gemmaText.replace(/Nombre cient[íi]fico:/i, '').trim();
+      }
+
+      if (!nameToSearch) {
+        Alert.alert('Aviso', 'No se detectó un nombre válido para buscar información.');
+        return;
+      }
+
+      setIdentificationResult(null); // Ocultar el overlay
+      router.push({
+        pathname: '/information',
+        params: { scientificName: nameToSearch }
+      });
+    };
+
+    return (
+      <View style={styles.resultOverlay}>
+        <View style={styles.resultCard}>
+          <Image 
+            source={{ uri: photoPath.startsWith('file://') ? photoPath : `file://${photoPath}` }} 
+            style={styles.resultImage} 
+            resizeMode="cover"
+          />
+          <View style={styles.tableContainer}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {tableData.map((item, index) => (
+                <View key={index} style={[styles.tableRow, index % 2 === 0 ? styles.tableRowEven : styles.tableRowOdd]}>
+                  <Text style={styles.tableLabel}>{item.label}</Text>
+                  <Text style={styles.tableValue}>{item.value}</Text>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+          
+          <TouchableOpacity style={styles.moreInfoButton} onPress={handleMoreInfo}>
+            <Text style={styles.moreInfoButtonText}>Ver más información</Text>
+          </TouchableOpacity>
+        </View>
+
+        <TouchableOpacity 
+          style={styles.closeResultButton} 
+          onPress={() => setIdentificationResult(null)}
+        >
+          <Ionicons name="close" size={28} color="#fff" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
@@ -214,6 +306,9 @@ export default function SearchScreen() {
           </TouchableOpacity>
 
         </View>
+
+        {/* ── Overlay de Resultados ── */}
+        {renderResults()}
       </View>
     </GestureHandlerRootView>
   );
@@ -317,5 +412,83 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 27,
     backgroundColor: '#ffffff',
+  },
+
+  // ── Result Overlay ──
+  resultOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+    zIndex: 10,
+  },
+  resultCard: {
+    width: '100%',
+    backgroundColor: '#EAF2E3', // Color verdoso claro similar a la imagen
+    borderRadius: 32,
+    overflow: 'hidden',
+    maxHeight: '90%',
+  },
+  resultImage: {
+    width: '100%',
+    height: 300,
+    borderBottomLeftRadius: 32,
+    borderBottomRightRadius: 32,
+  },
+  tableContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    maxHeight: 200,
+  },
+  tableRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 4,
+  },
+  tableRowEven: {
+    backgroundColor: 'transparent',
+  },
+  tableRowOdd: {
+    backgroundColor: 'rgba(255,255,255,0.5)',
+  },
+  tableLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#3A4D39',
+  },
+  tableValue: {
+    fontSize: 14,
+    color: '#4F6F52',
+    fontWeight: '400',
+    flex: 1,
+    textAlign: 'right',
+  },
+  moreInfoButton: {
+    backgroundColor: '#4F6F52',
+    paddingVertical: 16,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 24,
+    alignItems: 'center',
+  },
+  moreInfoButtonText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  closeResultButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });

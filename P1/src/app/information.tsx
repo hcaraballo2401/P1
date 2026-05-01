@@ -148,8 +148,9 @@ export default function SpeciesDetailScreen() {
   }, [shimmerAnim]);
 
   const fetchSpeciesDetail = useCallback(async () => {
-    if (!taxonId) {
-      setError('No se proporcionó un ID de especie.');
+    const searchName = params.scientificName as string;
+    if (!taxonId && !searchName) {
+      setError('No se proporcionó un ID de especie ni nombre científico.');
       setIsLoading(false);
       return;
     }
@@ -160,9 +161,15 @@ export default function SpeciesDetailScreen() {
 
       // Usamos el endpoint species_counts filtrado por taxon_id para obtener el conteo en la región
       // o usamos /v2/taxa/${taxonId} si count ya vino por params y solo queremos la especie.
-      // Como queremos replicar exactamente la info anterior, lo más seguro es usar taxa/ID.
-      
-      const res = await fetch(`${INAT_API_BASE}/taxa/${taxonId}?fields=all`, {
+      // Si recibimos un nombre científico, usamos el endpoint de búsqueda v1/taxa
+      let url = '';
+      if (taxonId) {
+        url = `${INAT_API_BASE}/taxa/${taxonId}?fields=all`;
+      } else {
+        url = `https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(searchName)}`;
+      }
+
+      const res = await fetch(url, {
         headers: REQUEST_HEADERS,
       });
 

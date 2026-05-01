@@ -58,7 +58,7 @@ async def consultar_gemma(imagen_bytes: bytes, mime_type: str, api_key: str | No
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": "Identifica el animal de la imagen. Responde estrictamente con el siguiente formato, sin introducciones ni despedidas:\n\nNombre común: [Nombre]\n\nNombre científico: [Nombre]\n\nReino: [Nombre]"
+                                    "text": "Identifica el animal de la imagen. Responde estrictamente el Nombre científico: [Nombre]"
                                 },
                                 {
                                     "type": "image_url",
