@@ -6,7 +6,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
 
@@ -32,8 +32,12 @@ interface IdentificacionResponse {
 
 export default function SearchScreen() {
   // ── Cámara ──
-  const [permission, requestPermission] = useCameraPermissions();
-  const camera = useRef<CameraView>(null); // Referencia tipada para la cámara
+  const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
+  const backDevice = useCameraDevice('back');
+  const frontDevice = useCameraDevice('front');
+  const device = backDevice || frontDevice;
+
+  const camera = useRef<Camera>(null);
   const [isTakingPhoto, setIsTakingPhoto] = useState<boolean>(false);
 
   // ── API Health ──
@@ -48,9 +52,9 @@ export default function SearchScreen() {
   // ─── Cámara: foco por tap ─────────────────────────────────────────────────
 
   const tapGesture = Gesture.Tap().onEnd((event) => {
-    // En expo-camera el autofocus suele ser automático o manejado por el sistema,
-    // pero si se quiere implementar un foco manual se haría aquí si la API lo permite.
-    // Por ahora, eliminamos la referencia a 'device'.
+    if (camera.current && device?.supportsFocus) {
+      camera.current.focus({ x: event.x, y: event.y }).catch(() => { });
+    }
   });
 
   // ─── API Health Check ─────────────────────────────────────────────────────
@@ -90,16 +94,11 @@ export default function SearchScreen() {
     try {
       setIsTakingPhoto(true);
 
-      // Versión Expo:
-      const photo = await camera.current.takePictureAsync({ quality: 0.8 });
+      const photo = await camera.current.takePhoto({ enableShutterSound: true });
 
       const formData = new FormData();
-      // En Expo se usa 'uri' directamente
-      formData.append('archivo', { 
-        uri: photo.uri, 
-        type: 'image/jpeg', 
-        name: 'photo.jpg' 
-      } as any);
+      const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
+      formData.append('archivo', { uri, type: 'image/jpeg', name: 'photo.jpg' } as unknown as Blob);
 
       const response = await fetch(BACKEND_URL, { method: 'POST', body: formData });
 
@@ -127,22 +126,20 @@ export default function SearchScreen() {
 
   // ─── Guards de pantalla ───────────────────────────────────────────────────
 
-  if (!permission) {
-    // Aún cargando el estado de permisos
-    return <View style={styles.container} />;
-  }
-
-  if (!permission.granted) {
+  if (!hasCameraPermission) {
     return (
       <View style={styles.container}>
         <Text style={styles.text}>Se requieren permisos para continuar:</Text>
         <Text style={[styles.text, { fontSize: 14, marginBottom: 24 }]}>
-          Cámara: {permission.granted ? '✅ Concedido' : '❌ Pendiente'}
+          Cámara: {hasCameraPermission ? '✅ Concedido' : '❌ Pendiente'}
         </Text>
         <TouchableOpacity style={styles.button} onPress={async () => {
-          const result = await requestPermission();
+          let camStatus: boolean = hasCameraPermission;
+          if (!camStatus) {
+            camStatus = await requestCameraPermission();
+          }
 
-          if (!result.granted) {
+          if (!camStatus) {
             Alert.alert(
               'Permisos insuficientes',
               'Aún faltan permisos. Si los has denegado anteriormente, ve a la Configuración de tu dispositivo para activarlos manualmente.'
@@ -155,17 +152,27 @@ export default function SearchScreen() {
     );
   }
 
+  if (device == null) {
+    return (
+      <View style={styles.container}>
+        <Text style={styles.text}>No se encontró un dispositivo de cámara</Text>
+      </View>
+    );
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
         <GestureDetector gesture={tapGesture}>
-          <CameraView
-            ref={camera} 
-            style={StyleSheet.absoluteFill} 
-            facing="back"
-          ></CameraView>
+          <Camera
+            ref={camera}
+            style={StyleSheet.absoluteFill}
+            device={device}
+            isActive={true}
+            photo={true}
+          />
         </GestureDetector>
 
         {/* ── Barra superior: Probar API ── */}
