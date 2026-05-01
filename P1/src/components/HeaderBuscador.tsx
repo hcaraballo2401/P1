@@ -4,13 +4,7 @@
  * Componente de cabecera dinámico para BioLife.
  * Alterna entre:
  *  - Estado "Header" → logo + iconos de búsqueda y menú.
- *  - Estado "Buscador" → TextInput con lupa, botón de micrófono y botón de cierre.
- *
- * Reconocimiento de voz: expo-speech-recognition (reemplazo oficial de @react-native-voice/voice)
- *
- * Permisos requeridos:
- *  - Android → RECORD_AUDIO (declarado en app.json)
- *  - iOS     → NSMicrophoneUsageDescription + NSSpeechRecognitionUsageDescription
+ *  - Estado "Buscador" → TextInput con lupa y botón de cierre.
  */
 
 import React, { useRef, useState, useCallback, useEffect } from 'react';
@@ -26,10 +20,6 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-//import {
-//  ExpoSpeechRecognitionModule,
-//  useSpeechRecognitionEvent,
-//} from 'expo-speech-recognition';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Paleta de colores (verde BioLife)
@@ -79,78 +69,10 @@ export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscador
   const router = useRouter();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
-  const [isListening, setIsListening] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
 
   /** Valor animado para la transición header ↔ buscador (0 = header, 1 = buscador) */
   const anim = useRef(new Animated.Value(0)).current;
   const inputRef = useRef<TextInput>(null);
-  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  /**
-   * Errores del motor de voz que son informativos, no críticos.
-   * Se ignoran para no molestar al usuario con avisos innecesarios.
-   * "no-speech" ocurre cuando el motor se activa pero no detecta voz audible.
-   */
-  const IGNORED_VOICE_ERRORS = ['no-speech', 'aborted', 'network'];
-
-  /** Limpia el banner de error y su temporizador asociado */
-  const dismissError = useCallback(() => {
-    setVoiceError(null);
-    if (errorTimerRef.current) {
-      clearTimeout(errorTimerRef.current);
-      errorTimerRef.current = null;
-    }
-  }, []);
-
-  /** Auto-cerrar el banner de error después de 3 segundos */
-  useEffect(() => {
-    if (voiceError) {
-      errorTimerRef.current = setTimeout(dismissError, 3000);
-    }
-    return () => {
-      if (errorTimerRef.current) {
-        clearTimeout(errorTimerRef.current);
-      }
-    };
-  }, [voiceError, dismissError]);
-
-  // ── Listeners de voz (expo-speech-recognition) ──────────────────────────────
-
-  /**
-   * Se dispara al recibir resultados parciales o finales del reconocimiento.
-   * Actualiza el TextInput y notifica al padre vía onSearch.
-   */
-  /*useSpeechRecognitionEvent('result', (event) => {
-    const transcript = event.results[0]?.transcript ?? '';
-    if (transcript) {
-      setSearchText(transcript);
-      onSearch(transcript);
-    }
-  });*/
-
-  /**
-   * Se dispara cuando el reconocimiento finaliza (el usuario dejó de hablar).
-   */
-  /*useSpeechRecognitionEvent('end', () => {
-    setIsListening(false);
-  });*/
-
-  /**
-   * Failsafe: captura errores del motor de voz sin romper la UI.
-   * Filtra errores benignos (no-speech, aborted) y solo muestra los relevantes.
-   */
-  /*useSpeechRecognitionEvent('error', (event) => {
-    const errorCode = event.error ?? '';
-    setIsListening(false);
-
-    // Ignorar errores no-críticos que son parte del flujo normal
-    if (IGNORED_VOICE_ERRORS.includes(errorCode)) {
-      return;
-    }
-
-    setVoiceError(errorCode || 'Error de reconocimiento de voz');
-  });*/
 
   // ── Animación de transición ─────────────────────────────────────────────────
 
@@ -165,12 +87,7 @@ export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscador
   }, [anim]);
 
   const closeSearch = useCallback(() => {
-    /*if (isListening) {
-      ExpoSpeechRecognitionModule.stop();
-    }*/
-    setIsListening(false);
     setSearchText('');
-    setVoiceError(null);
     onSearch('');
 
     Animated.timing(anim, {
@@ -179,44 +96,7 @@ export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscador
       easing: Easing.in(Easing.cubic),
       useNativeDriver: false,
     }).start(() => setIsSearchOpen(false));
-  }, [anim, isListening, onSearch]);
-
-  // ── Lógica de voz ───────────────────────────────────────────────────────────
-
-  /**
-   * Inicia o detiene el reconocimiento de voz en español (es-ES).
-   * Solicita permisos automáticamente la primera vez.
-   */
-  const handleVoiceStart = useCallback(async () => {
-    try {
-      if (isListening) {
-        //ExpoSpeechRecognitionModule.stop();
-        setIsListening(false);
-        return;
-      }
-
-      // Solicitar permisos de micrófono y reconocimiento de voz
-      /*const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
-      if (!granted) {
-        setVoiceError('Permiso de micrófono denegado. Actívalo en Configuración.');
-        return;
-      }*/
-
-      setVoiceError(null);
-      setIsListening(true);
-
-      /*ExpoSpeechRecognitionModule.start({
-        lang: 'es-ES',
-        interimResults: true,
-      });*/
-      alert("La búsqueda por voz está desactivada temporalmente en Expo Go.");
-      setIsListening(false);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Error al iniciar el micrófono';
-      setVoiceError(message);
-      setIsListening(false);
-    }
-  }, [isListening]);
+  }, [anim, onSearch]);
 
   // ── Handlers del TextInput ─────────────────────────────────────────────────
 
@@ -331,37 +211,7 @@ export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscador
             accessibilityLabel="Campo de búsqueda"
           />
         </View>
-
-        {/* Botón de micrófono circular */}
-        <TouchableOpacity
-          style={[styles.micButton, isListening && styles.micButtonActive]}
-          onPress={handleVoiceStart}
-          accessibilityLabel={isListening ? 'Detener grabación de voz' : 'Iniciar búsqueda por voz'}
-          accessibilityRole="button"
-        >
-          <Ionicons
-            name={isListening ? 'radio-button-on' : 'mic'}
-            size={20}
-            color="#FFFFFF"
-          />
-        </TouchableOpacity>
       </Animated.View>
-
-      {/* ── Indicador de error de voz (tappable para cerrar, auto-cierre en 3s) ── */}
-      {voiceError !== null && isSearchOpen && (
-        <TouchableOpacity
-          style={styles.voiceErrorBanner}
-          onPress={dismissError}
-          activeOpacity={0.7}
-          accessibilityLabel="Cerrar aviso de error"
-        >
-          <Ionicons name="warning-outline" size={14} color={GREEN.dark} />
-          <Text style={styles.voiceErrorText} numberOfLines={2}>
-            {voiceError}
-          </Text>
-          <Ionicons name="close-circle" size={16} color="#5D4037" />
-        </TouchableOpacity>
-      )}
     </View>
   );
 }
