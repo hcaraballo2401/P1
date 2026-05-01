@@ -57,6 +57,9 @@ class Settings(BaseSettings):
     # YouTube Data API
     youtube_api_key: str | None = None
 
+    # Novita API
+    novita_api_key: str | None = None
+
     # General
     app_env: str = "development"
     log_level: str = "INFO"

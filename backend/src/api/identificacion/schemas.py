@@ -68,6 +68,11 @@ class IdentificacionResponseSchema(BaseModel):
         description="Identificador del modelo de Hugging Face utilizado.",
         examples=["google/vit-base-patch16-224"],
     )
+    gemma_respuesta: str | None = Field(
+        default=None,
+        description="Respuesta generada por el modelo Gemma-4-31B-it usando Novita API.",
+        examples=["Nombre común: Águila Real\nNombre científico: Aquila chrysaetos\nReino: Animalia"],
+    )
 
     model_config = {
         "json_schema_extra": {
@@ -82,6 +87,7 @@ class IdentificacionResponseSchema(BaseModel):
                 ],
                 "requiere_revision_humana": False,
                 "modelo_usado": "google/vit-base-patch16-224",
+                "gemma_respuesta": "Nombre común: Águila Real\nNombre científico: Aquila chrysaetos\nReino: Animalia"
             }
         }
     }

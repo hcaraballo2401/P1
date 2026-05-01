@@ -25,6 +25,7 @@ const HEALTH_URL = `${API_BASE_URL}/health`;
 interface IdentificacionResponse {
   especie_principal: { etiqueta: string; confianza: number };
   requiere_revision_humana: boolean;
+  gemma_respuesta?: string;
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -84,7 +85,8 @@ export default function SearchScreen() {
   /**
    * Captura una foto y la envía al backend para su identificación.
    * Usa multipart/form-data para que el servidor procese el archivo
-   * con python-multipart en FastAPI.
+   * con python-multipart en FastAPI. El backend maneja internamente
+   * la consulta a modelos secundarios.
    */
   const takePhoto = async (): Promise<void> => {
     if (!camera.current) return;
@@ -103,15 +105,16 @@ export default function SearchScreen() {
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null);
         const detail = errorBody?.detail ?? `${response.status} ${response.statusText}`;
-        throw new Error(detail);
+        throw new Error(`Error en Backend: ${detail}`);
       }
 
       const result: IdentificacionResponse = await response.json();
       const confidencePercent = (result.especie_principal.confianza * 100).toFixed(1);
-
+      const gemmaText = result.gemma_respuesta || "Sin respuesta del modelo secundario.";
+      
       Alert.alert(
-        `Animal identificado: ${result.especie_principal.etiqueta}`,
-        `Confianza: ${confidencePercent}%${result.requiere_revision_humana ? '\nRequiere revisión humana.' : ''}`,
+        `Resultados de Identificación`,
+        `[ResNet-50]\nAnimal: ${result.especie_principal.etiqueta}\nConfianza: ${confidencePercent}%${result.requiere_revision_humana ? '\nRequiere revisión humana.' : ''}\n\n[Gemma-4-31B-it]\n${gemmaText}`
       );
     } catch (error) {
       const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);

@@ -10,8 +10,11 @@ Endpoints:
     POST /identificar  — Imagen → identificación de especie (IA visual)
 """
 
+import asyncio
+import base64
 import logging
 
+import httpx
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from src.api.identificacion.schemas import (
@@ -31,6 +34,49 @@ from src.infrastructure.image_validation import detectar_mime_type
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+async def consultar_gemma(imagen_bytes: bytes, mime_type: str, api_key: str | None) -> str:
+    if not api_key:
+        return "API Key de Novita no configurada."
+    
+    try:
+        base64_img = base64.b64encode(imagen_bytes).decode("utf-8")
+        data_url = f"data:{mime_type};base64,{base64_img}"
+        
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.novita.ai/v3/openai/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "model": "google/gemma-4-31b-it",
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "Identifica el animal de la imagen. Responde estrictamente con el siguiente formato, sin introducciones ni despedidas:\n\nNombre común: [Nombre]\n\nNombre científico: [Nombre]\n\nReino: [Nombre]"
+                                },
+                                {
+                                    "type": "image_url",
+                                    "image_url": {
+                                        "url": data_url
+                                    }
+                                }
+                            ]
+                        }
+                    ]
+                }
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.error("Error consultando Gemma: %s", e)
+        return "Error al consultar Gemma"
 
 
 @router.post(
@@ -115,13 +161,20 @@ async def identificar_animal_endpoint(
         len(imagen_bytes),
     )
 
-    # --- Paso 4: Ejecutar el caso de uso ---
+    # --- Paso 4: Ejecutar el caso de uso y modelo secundario en paralelo ---
     try:
-        resultado = await identificar_animal(
+        resultado_task = identificar_animal(
             imagen_bytes=imagen_bytes,
             mime_type=mime_type_real,
             clasificador_fn=clasificar_imagen,
         )
+        gemma_task = consultar_gemma(
+            imagen_bytes=imagen_bytes,
+            mime_type=mime_type_real,
+            api_key=settings.novita_api_key,
+        )
+        
+        resultado, gemma_respuesta = await asyncio.gather(resultado_task, gemma_task)
     except AppError as exc:
         # Mapear excepciones del dominio/infraestructura a respuestas HTTP
         logger.error(
@@ -147,4 +200,5 @@ async def identificar_animal_endpoint(
         ],
         requiere_revision_humana=resultado.requiere_revision_humana,
         modelo_usado=resultado.modelo_usado,
+        gemma_respuesta=gemma_respuesta,
     )
