@@ -195,15 +195,23 @@ export default function SearchScreen() {
     ];
 
     const handleMoreInfo = () => {
-      // Extraemos el nombre científico de la respuesta
       let nameToSearch = "";
-      const match = gemmaText.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
       
-      if (match && match[1]) {
-        nameToSearch = match[1].trim();
+      // Si el modelo local tiene alta confianza (>70%), preferimos su etiqueta
+      if (result.especie_principal.confianza > 0.70) {
+        // ResNet suele devolver una lista separada por comas (ej: "capuchin, ringtail, Cebus capucinus")
+        // El nombre científico suele estar al final de la cadena.
+        const parts = result.especie_principal.etiqueta.split(',');
+        nameToSearch = parts[parts.length - 1].trim();
       } else {
-        // Fallback si la IA no siguió el formato exacto
-        nameToSearch = gemmaText.replace(/Nombre cient[íi]fico:/i, '').trim();
+        // Extraemos el nombre científico de la respuesta de Gemma
+        const match = gemmaText.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
+        if (match && match[1]) {
+          nameToSearch = match[1].trim();
+        } else {
+          // Fallback si la IA no siguió el formato exacto
+          nameToSearch = gemmaText.replace(/Nombre cient[íi]fico:/i, '').trim();
+        }
       }
 
       if (!nameToSearch) {
@@ -211,7 +219,7 @@ export default function SearchScreen() {
         return;
       }
 
-      setIdentificationResult(null); // Ocultar el overlay
+      // No ocultamos el overlay para que al regresar de 'information.tsx' siga visible
       router.push({
         pathname: '/information',
         params: { scientificName: nameToSearch }
@@ -226,6 +234,11 @@ export default function SearchScreen() {
             style={styles.resultImage} 
             resizeMode="cover"
           />
+          
+          <Text style={styles.reviewWarningText}>
+            ⚠️ Requiere revisión de un experto
+          </Text>
+
           <View style={styles.tableContainer}>
             <ScrollView showsVerticalScrollIndicator={false}>
               {tableData.map((item, index) => (
@@ -237,9 +250,17 @@ export default function SearchScreen() {
             </ScrollView>
           </View>
           
-          <TouchableOpacity style={styles.moreInfoButton} onPress={handleMoreInfo}>
-            <Text style={styles.moreInfoButtonText}>Ver más información</Text>
-          </TouchableOpacity>
+          <View style={styles.actionButtonsContainer}>
+            <TouchableOpacity style={styles.actionButton} onPress={handleMoreInfo}>
+              <Text style={styles.actionButtonText}>Ver más</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.actionButton, styles.uploadButton]} 
+              onPress={() => Alert.alert('Aviso', 'Subir avistamiento estará disponible próximamente.')}
+            >
+              <Text style={styles.actionButtonText}>Subir avistamiento</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <TouchableOpacity 
@@ -467,18 +488,36 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
   },
-  moreInfoButton: {
-    backgroundColor: '#4F6F52',
-    paddingVertical: 16,
-    marginHorizontal: 20,
+  reviewWarningText: {
+    color: '#D4883A', // Tono de advertencia
+    textAlign: 'center',
+    fontWeight: 'bold',
+    marginTop: 16,
+    fontSize: 14,
+  },
+  actionButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
     marginBottom: 20,
+    gap: 12,
+  },
+  actionButton: {
+    flex: 1,
+    backgroundColor: '#4F6F52',
+    paddingVertical: 14,
     borderRadius: 24,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  moreInfoButtonText: {
+  uploadButton: {
+    backgroundColor: '#3A4D39', // Tono más oscuro para diferenciar
+  },
+  actionButtonText: {
     color: '#ffffff',
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
+    textAlign: 'center',
   },
   closeResultButton: {
     position: 'absolute',

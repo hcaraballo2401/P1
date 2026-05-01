@@ -159,33 +159,55 @@ export default function SpeciesDetailScreen() {
       setIsLoading(true);
       setError(null);
 
-      // Usamos el endpoint species_counts filtrado por taxon_id para obtener el conteo en la región
-      // o usamos /v2/taxa/${taxonId} si count ya vino por params y solo queremos la especie.
-      // Si recibimos un nombre científico, usamos el endpoint de búsqueda v1/taxa
-      let url = '';
-      if (taxonId) {
-        url = `${INAT_API_BASE}/taxa/${taxonId}?fields=all`;
-      } else {
-        url = `https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(searchName)}`;
+      let finalTaxonId = taxonId as string;
+
+      // Si nos pasaron un nombre, resolvemos su ID primero
+      if (!finalTaxonId && searchName) {
+        const searchRes = await fetch(`https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(searchName)}`);
+        if (!searchRes.ok) throw new Error('Error buscando la especie por nombre.');
+        const searchJson = await searchRes.json();
+        if (!searchJson.results || searchJson.results.length === 0) {
+          throw new Error(`No se encontró en iNaturalist la especie: ${searchName}`);
+        }
+        
+        // Buscamos coincidencia exacta del nombre científico para mayor precisión
+        const exactMatch = searchJson.results.find(
+          (r: any) => r.name.toLowerCase() === searchName.toLowerCase()
+        );
+        
+        // Si hay coincidencia exacta la usamos, si no caemos en el primer resultado
+        const bestMatch = exactMatch || searchJson.results[0];
+        finalTaxonId = bestMatch.id.toString();
       }
 
-      const res = await fetch(url, {
-        headers: REQUEST_HEADERS,
-      });
-
+      // 1. Obtener detalles completos del taxón usando v1/taxa/{id} que incluye establishment_means y summary
+      const res = await fetch(`https://api.inaturalist.org/v1/taxa/${finalTaxonId}`);
       if (!res.ok) {
         throw new Error(`Error al obtener detalles: ${res.status}`);
       }
-
       const json = await res.json();
-
       if (!json.results || json.results.length === 0) {
         throw new Error('No se encontraron detalles para esta especie.');
       }
-
       const taxon = json.results[0];
-      const parsedCount = count ? parseInt(count as string, 10) : 0;
-      
+
+      // 2. Resolver el conteo de observaciones locales
+      let parsedCount = count ? parseInt(count as string, 10) : 0;
+      if (!count) {
+        try {
+          // Buscamos cuántas observaciones hay en la región (INAT_PLACE_ID) para este taxón
+          const countRes = await fetch(`https://api.inaturalist.org/v1/observations/species_counts?place_id=${INAT_PLACE_ID}&taxon_id=${finalTaxonId}`);
+          if (countRes.ok) {
+            const countJson = await countRes.json();
+            if (countJson.results && countJson.results.length > 0) {
+              parsedCount = countJson.results[0].count;
+            }
+          }
+        } catch (e) {
+          console.warn('No se pudo obtener el conteo de observaciones local', e);
+        }
+      }
+
       const speciesDisplay = mapSpeciesResult(taxon, parsedCount);
 
       // Cargar Wikipedia summary
