@@ -3,6 +3,11 @@
     "name": "P1",
     "slug": "P1",
     "scheme": "me-p1",
+    "extra": {
+      "router": {
+        "root": "src/app" 
+      }
+    },
     "experiments": {
       "typedRoutes": true
     },

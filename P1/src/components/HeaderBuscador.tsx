@@ -25,10 +25,11 @@ import {
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  ExpoSpeechRecognitionModule,
-  useSpeechRecognitionEvent,
-} from 'expo-speech-recognition';
+import { useRouter } from 'expo-router';
+//import {
+//  ExpoSpeechRecognitionModule,
+//  useSpeechRecognitionEvent,
+//} from 'expo-speech-recognition';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Paleta de colores (verde BioLife)
@@ -75,6 +76,7 @@ interface HeaderBuscadorProps {
  * modo "header estándar" y el modo "barra de búsqueda rápida".
  */
 export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscadorProps): React.JSX.Element {
+  const router = useRouter();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -119,26 +121,26 @@ export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscador
    * Se dispara al recibir resultados parciales o finales del reconocimiento.
    * Actualiza el TextInput y notifica al padre vía onSearch.
    */
-  useSpeechRecognitionEvent('result', (event) => {
+  /*useSpeechRecognitionEvent('result', (event) => {
     const transcript = event.results[0]?.transcript ?? '';
     if (transcript) {
       setSearchText(transcript);
       onSearch(transcript);
     }
-  });
+  });*/
 
   /**
    * Se dispara cuando el reconocimiento finaliza (el usuario dejó de hablar).
    */
-  useSpeechRecognitionEvent('end', () => {
+  /*useSpeechRecognitionEvent('end', () => {
     setIsListening(false);
-  });
+  });*/
 
   /**
    * Failsafe: captura errores del motor de voz sin romper la UI.
    * Filtra errores benignos (no-speech, aborted) y solo muestra los relevantes.
    */
-  useSpeechRecognitionEvent('error', (event) => {
+  /*useSpeechRecognitionEvent('error', (event) => {
     const errorCode = event.error ?? '';
     setIsListening(false);
 
@@ -148,7 +150,7 @@ export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscador
     }
 
     setVoiceError(errorCode || 'Error de reconocimiento de voz');
-  });
+  });*/
 
   // ── Animación de transición ─────────────────────────────────────────────────
 
@@ -163,9 +165,9 @@ export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscador
   }, [anim]);
 
   const closeSearch = useCallback(() => {
-    if (isListening) {
+    /*if (isListening) {
       ExpoSpeechRecognitionModule.stop();
-    }
+    }*/
     setIsListening(false);
     setSearchText('');
     setVoiceError(null);
@@ -188,25 +190,27 @@ export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscador
   const handleVoiceStart = useCallback(async () => {
     try {
       if (isListening) {
-        ExpoSpeechRecognitionModule.stop();
+        //ExpoSpeechRecognitionModule.stop();
         setIsListening(false);
         return;
       }
 
       // Solicitar permisos de micrófono y reconocimiento de voz
-      const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+      /*const { granted } = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
       if (!granted) {
         setVoiceError('Permiso de micrófono denegado. Actívalo en Configuración.');
         return;
-      }
+      }*/
 
       setVoiceError(null);
       setIsListening(true);
 
-      ExpoSpeechRecognitionModule.start({
+      /*ExpoSpeechRecognitionModule.start({
         lang: 'es-ES',
         interimResults: true,
-      });
+      });*/
+      alert("La búsqueda por voz está desactivada temporalmente en Expo Go.");
+      setIsListening(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error al iniciar el micrófono';
       setVoiceError(message);
@@ -256,6 +260,15 @@ export default function HeaderBuscador({ onSearch, onMenuPress }: HeaderBuscador
 
         {/* Iconos de acción */}
         <View style={styles.actionsContainer}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => router.push('/search' as any)}
+            accessibilityLabel="Escanear especie"
+            accessibilityRole="button"
+          >
+            <Ionicons name="camera" size={24} color={GREEN.dark} />
+          </TouchableOpacity>
+
           <TouchableOpacity
             style={styles.iconButton}
             onPress={openSearch}
