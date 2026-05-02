@@ -13,6 +13,7 @@ import { useRouter } from 'expo-router';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
+import { saveIdentification } from '../utils/storage';
 
 
 // ─── Constantes de configuración ─────────────────────────────────────────────
@@ -220,6 +221,25 @@ export default function SearchScreen() {
       });
     };
 
+    const handleUpload = async () => {
+      if (!identificationResult) return;
+
+      try {
+        await saveIdentification({
+          id: Date.now().toString(),
+          uri: identificationResult.photoPath,
+          species: identificationResult.result.especie_principal.etiqueta,
+          confidence: identificationResult.result.especie_principal.confianza,
+          date: new Date().toISOString(),
+        });
+
+        Alert.alert('¡Éxito!', 'Tu avistamiento ha sido guardado en tu perfil.');
+        setIdentificationResult(null); // Cerrar el overlay después de subir
+      } catch (error) {
+        Alert.alert('Error', 'No se pudo guardar el avistamiento.');
+      }
+    };
+
     return (
       <View style={styles.resultOverlay}>
         <View style={styles.resultCard}>
@@ -250,7 +270,7 @@ export default function SearchScreen() {
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.actionButton, styles.uploadButton]} 
-              onPress={() => Alert.alert('Aviso', 'Subir avistamiento estará disponible próximamente.')}
+              onPress={handleUpload}
             >
               <Text style={styles.actionButtonText}>Subir avistamiento</Text>
             </TouchableOpacity>

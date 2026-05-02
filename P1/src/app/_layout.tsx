@@ -49,25 +49,28 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
-        name="favorites"
+        name="profile"
         options={{
-          title: 'Favoritos',
+          title: 'Perfil',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="heart-outline" size={size} color={color} />
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="settings"
-        options={{
-          title: 'Configuración',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="settings-outline" size={size} color={color} />
+            <Ionicons name="person-outline" size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="explore"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="favorites"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="settings"
         options={{
           href: null,
         }}
