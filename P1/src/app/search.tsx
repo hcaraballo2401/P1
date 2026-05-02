@@ -10,7 +10,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { Camera, useCameraDevice, useCameraPermission } from 'react-native-vision-camera';
+import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
 
@@ -37,12 +37,14 @@ interface IdentificacionResponse {
 export default function SearchScreen() {
   const router = useRouter();
   // ── Cámara ──
-  const { hasPermission: hasCameraPermission, requestPermission: requestCameraPermission } = useCameraPermission();
-  const backDevice = useCameraDevice('back');
-  const frontDevice = useCameraDevice('front');
-  const device = backDevice || frontDevice;
-
-  const camera = useRef<Camera>(null);
+  const [permission, requestPermission] = useCameraPermissions();
+  const hasCameraPermission = permission?.granted;
+  const requestCameraPermission = async () => {
+    const res = await requestPermission();
+    return res?.granted;
+  };
+  
+  const camera = useRef<CameraView>(null);
   const [isTakingPhoto, setIsTakingPhoto] = useState<boolean>(false);
 
   // ── API Health ──
@@ -63,9 +65,7 @@ export default function SearchScreen() {
   // ─── Cámara: foco por tap ─────────────────────────────────────────────────
 
   const tapGesture = Gesture.Tap().onEnd((event) => {
-    if (camera.current && device?.supportsFocus) {
-      camera.current.focus({ x: event.x, y: event.y }).catch(() => { });
-    }
+    // CameraView auto-focus can handle focus out-of-the-box in many cases.
   });
 
   // ─── API Health Check ─────────────────────────────────────────────────────
@@ -105,12 +105,13 @@ export default function SearchScreen() {
     try {
       setIsTakingPhoto(true);
 
-      const photo = await camera.current.takePhoto({ enableShutterSound: true });
+      const photo = await camera.current.takePictureAsync();
+
+      if (!photo) throw new Error("No se capturó la foto");
 
       const formData = new FormData();
-      const uri = photo.path.startsWith('file://') ? photo.path : `file://${photo.path}`;
+      const uri = photo.uri.startsWith('file://') ? photo.uri : `file://${photo.uri}`;
       formData.append('archivo', { uri, type: 'image/jpeg', name: 'photo.jpg' } as unknown as Blob);
-
       const response = await fetch(BACKEND_URL, { method: 'POST', body: formData });
 
       if (!response.ok) {
@@ -122,7 +123,7 @@ export default function SearchScreen() {
       const result: IdentificacionResponse = await response.json();
       
       setIdentificationResult({
-        photoPath: photo.path,
+        photoPath: photo.uri,
         result,
       });
 
@@ -141,10 +142,10 @@ export default function SearchScreen() {
       <View style={styles.container}>
         <Text style={styles.text}>Se requieren permisos para continuar:</Text>
         <Text style={[styles.text, { fontSize: 14, marginBottom: 24 }]}>
-          Cámara: {hasCameraPermission ? '✅ Concedido' : '❌ Pendiente'}
+          Cámara: {permission?.granted ? '✅ Concedido' : '❌ Pendiente'}
         </Text>
         <TouchableOpacity style={styles.button} onPress={async () => {
-          let camStatus: boolean = hasCameraPermission;
+          let camStatus = permission?.granted;
           if (!camStatus) {
             camStatus = await requestCameraPermission();
           }
@@ -158,14 +159,6 @@ export default function SearchScreen() {
         }}>
           <Text style={styles.buttonText}>Otorgar Permisos</Text>
         </TouchableOpacity>
-      </View>
-    );
-  }
-
-  if (device == null) {
-    return (
-      <View style={styles.container}>
-        <Text style={styles.text}>No se encontró un dispositivo de cámara</Text>
       </View>
     );
   }
@@ -279,12 +272,11 @@ export default function SearchScreen() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
         <GestureDetector gesture={tapGesture}>
-          <Camera
+          <CameraView
             ref={camera}
             style={StyleSheet.absoluteFill}
-            device={device}
-            isActive={true}
-            photo={true}
+            facing="back"
+            autofocus="on"
           />
         </GestureDetector>
 

@@ -51,10 +51,9 @@
     "plugins": [
       "expo-router",
       [
-        "react-native-vision-camera",
+        "expo-camera",
         {
-          "cameraPermissionText": "Permite que BioLife acceda a tu cámara para identificar especies.",
-          "enableMicrophonePermission": false
+          "cameraPermission": "Permite que BioLife acceda a tu cámara para identificar especies."
         }
       ],
       "expo-speech-recognition"
