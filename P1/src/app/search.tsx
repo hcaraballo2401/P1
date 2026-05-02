@@ -47,6 +47,10 @@ export default function SearchScreen() {
   const camera = useRef<CameraView>(null);
   const [isTakingPhoto, setIsTakingPhoto] = useState<boolean>(false);
 
+  // ── Zoom de Cámara ──
+  const [zoom, setZoom] = useState<number>(0);
+  const startZoom = useRef<number>(0);
+
   // ── API Health ──
   const [isTestingApi, setIsTestingApi] = useState<boolean>(false);
 
@@ -62,11 +66,22 @@ export default function SearchScreen() {
     // Solo comprobamos el permiso al montar
   }, []);
 
-  // ─── Cámara: foco por tap ─────────────────────────────────────────────────
+  // ─── Cámara: foco por tap y zoom ──────────────────────────────────────────
 
   const tapGesture = Gesture.Tap().onEnd((event) => {
     // CameraView auto-focus can handle focus out-of-the-box in many cases.
   });
+
+  const pinchGesture = Gesture.Pinch()
+    .onStart(() => {
+      startZoom.current = zoom;
+    })
+    .onUpdate((event) => {
+      let newZoom = startZoom.current + (event.scale - 1) * 0.05; // Ajuste suave
+      setZoom(Math.min(Math.max(newZoom, 0), 1));
+    });
+
+  const cameraGestures = Gesture.Simultaneous(tapGesture, pinchGesture);
 
   // ─── API Health Check ─────────────────────────────────────────────────────
 
@@ -271,12 +286,13 @@ export default function SearchScreen() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
-        <GestureDetector gesture={tapGesture}>
+        <GestureDetector gesture={cameraGestures}>
           <CameraView
             ref={camera}
             style={StyleSheet.absoluteFill}
             facing="back"
             autofocus="on"
+            zoom={zoom}
           />
         </GestureDetector>
 
