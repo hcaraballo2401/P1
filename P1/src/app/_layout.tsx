@@ -78,6 +78,12 @@ export default function AppLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="regions"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
