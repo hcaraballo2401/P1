@@ -14,6 +14,7 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
 
+
 // ─── Constantes de configuración ─────────────────────────────────────────────
 
 /**
@@ -203,23 +204,33 @@ export default function SearchScreen() {
     ];
 
     const handleMoreInfo = () => {
-      let nameToSearch = "";
-      
-      // Si el modelo local tiene alta confianza (>70%), preferimos su etiqueta
-      if (result.especie_principal.confianza > 0.70) {
-        // ResNet suele devolver una lista separada por comas (ej: "capuchin, ringtail, Cebus capucinus")
-        // El nombre científico suele estar al final de la cadena.
-        const parts = result.especie_principal.etiqueta.split(',');
-        nameToSearch = parts[parts.length - 1].trim();
-      } else {
-        // Extraemos el nombre científico de la respuesta de Gemma
-        const match = gemmaText.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
-        if (match && match[1]) {
-          nameToSearch = match[1].trim();
-        } else {
-          // Fallback si la IA no siguió el formato exacto
-          nameToSearch = gemmaText.replace(/Nombre cient[íi]fico:/i, '').trim();
+      const extractScientificName = (text: string) => {
+        const regex = /\b[A-Z][a-z]+(?: [a-z]+){1,2}\b/g;
+        const matches = text.match(regex);
+        return matches?.[matches.length - 1]?.trim() ?? '';
+      };
+
+      const tryParseFromLabel = (label: string) => {
+        const candidates = label.split(',').map((part) => part.trim()).filter(Boolean);
+        for (let i = candidates.length - 1; i >= 0; i -= 1) {
+          const candidate = candidates[i];
+          if (/^[A-Z][a-z]+(?: [a-z]+){1,2}$/.test(candidate)) {
+            return candidate;
+          }
         }
+        return extractScientificName(label);
+      };
+
+      let nameToSearch = '';
+      const gemmaMatch = gemmaText.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
+      if (gemmaMatch && gemmaMatch[1]) {
+        nameToSearch = gemmaMatch[1].trim();
+      } else if (result.especie_principal.confianza > 0.70) {
+        const candidate = tryParseFromLabel(result.especie_principal.etiqueta);
+        nameToSearch = candidate || result.especie_principal.etiqueta.trim();
+      } else {
+        const candidate = tryParseFromLabel(result.especie_principal.etiqueta);
+        nameToSearch = candidate || gemmaText.replace(/Nombre cient[íi]fico:/i, '').trim();
       }
 
       if (!nameToSearch) {
