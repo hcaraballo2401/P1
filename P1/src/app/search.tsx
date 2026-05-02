@@ -14,6 +14,7 @@ import { Camera, useCameraDevice, useCameraPermission } from 'react-native-visio
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
 
+
 // ─── Constantes de configuración ─────────────────────────────────────────────
 
 /**
