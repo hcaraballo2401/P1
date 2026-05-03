@@ -22,6 +22,9 @@ export default function RegionsScreen() {
   const onMessage = (event: WebViewMessageEvent) => {
     try {
       const data = JSON.parse(event.nativeEvent.data);
+      if (data.type === 'DEBUG') {
+        console.log('[WebView Debug]:', data.message, data.data || '');
+      }
       if (data.type === 'NAVIGATE_TO_SPECIES' && data.taxonId) {
         router.push({
           pathname: '/information',
@@ -127,25 +130,28 @@ export default function RegionsScreen() {
         <script>
           var map = L.map('map', {
             zoomControl: true,
-            attributionControl: false
+            attributionControl: false,
+            maxZoom: 16 // LIMITAR EL ZOOM MÁXIMO GLOBAL PARA EVITAR ZONAS MUERTAS
           }).setView([7.5, -62.5], 7);
 
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            maxZoom: 19,
+            maxZoom: 16,
           }).addTo(map);
 
           var gridLayer = L.tileLayer('${gridUrl}', {
-            maxZoom: 19, opacity: 0.7, zIndex: 1000
+            maxZoom: 16, opacity: 0.7, zIndex: 1000
           });
 
           var pointsLayer = L.tileLayer('${pointsUrl}', {
-            maxZoom: 19, opacity: 1.0, zIndex: 1001
+            maxZoom: 16, opacity: 1.0, zIndex: 1001
           });
 
           var utfGrid = new L.UtfGrid('${utfGridUrl}', {
             useJsonP: false,
-            resolution: 4, // Estándar para máxima compatibilidad móvil
-            pointerEvents: true
+            resolution: 4,
+            pointerEvents: true,
+            maxRequests: 16,
+            maxNativeZoom: 16
           });
 
           // Al hacer clic en un punto
@@ -158,28 +164,27 @@ export default function RegionsScreen() {
                   if (json.results && json.results.length > 0) {
                     var obs = json.results[0];
                     var photo = obs.photos?.[0]?.url || obs.taxon?.default_photo?.medium_url || '';
-                    var userIcon = obs.user?.icon_url || 'https://www.inaturalist.org/attachment_defaults/users/icons/defaults/thumb.png';
+                    var userIcon = (obs.user && obs.user.icon_url) ? obs.user.icon_url : 'https://www.inaturalist.org/attachment_defaults/users/icons/defaults/thumb.png';
 
-                    var content = \`
-                      <div class="preview-card" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({type: 'NAVIGATE_TO_SPECIES', taxonId: \${obs.taxon.id}}))">
-                        <img src="\${photo}" class="obs-image" />
-                        <div class="obs-info">
-                          <p class="common-name">\${obs.taxon.preferred_common_name || obs.taxon.name}</p>
-                          <p class="scientific-name">(\${obs.taxon.name})</p>
-                          <p class="location">\${obs.place_guess || 'Ubicación desconocida'}</p>
-                          <p class="date">\${formatDate(obs.observed_on_string || obs.created_at)}</p>
-                        </div>
-                        <img src="\${userIcon}" class="user-icon" />
-                      </div>
-                    \`;
+                    var content = '<div class="preview-card" onclick="window.ReactNativeWebView.postMessage(JSON.stringify({type: \\'NAVIGATE_TO_SPECIES\\', taxonId: ' + obs.taxon.id + '}))">' +
+                        '<img src="' + photo + '" class="obs-image" />' +
+                        '<div class="obs-info">' +
+                          '<p class="common-name">' + (obs.taxon.preferred_common_name || obs.taxon.name) + '</p>' +
+                          '<p class="scientific-name">(' + obs.taxon.name + ')</p>' +
+                          '<p class="location">' + (obs.place_guess || 'Ubicación desconocida').replace(/'/g, "\\'") + '</p>' +
+                          '<p class="date">' + formatDate(obs.observed_on_string || obs.created_at) + '</p>' +
+                        '</div>' +
+                        '<img src="' + userIcon + '" class="user-icon" />' +
+                      '</div>';
 
+                    var latlng = obs.location.split(',');
                     L.popup({
                       offset: [0, -5],
                       className: 'custom-popup',
                       autoPan: true,
                       autoPanPadding: [50, 50]
                     })
-                      .setLatLng([obs.location.split(',')[0], obs.location.split(',')[1]])
+                      .setLatLng([parseFloat(latlng[0]), parseFloat(latlng[1])])
                       .setContent(content)
                       .openOn(map);
                   }
@@ -212,10 +217,10 @@ export default function RegionsScreen() {
               if (!map.hasLayer(pointsLayer)) map.addLayer(pointsLayer);
               if (!map.hasLayer(utfGrid)) {
                 map.addLayer(utfGrid);
-              } else {
-                // Forzar que la capa de clics esté siempre al frente
-                utfGrid.bringToFront();
               }
+              
+              // Forzar que la capa de clics esté siempre al frente y activa
+              utfGrid.bringToFront();
             } else {
               if (map.hasLayer(pointsLayer)) map.removeLayer(pointsLayer);
               if (map.hasLayer(utfGrid)) map.removeLayer(utfGrid);
