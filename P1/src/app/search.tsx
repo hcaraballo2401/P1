@@ -14,6 +14,7 @@ import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
 
+
 // ─── Constantes de configuración ─────────────────────────────────────────────
 
 /**
