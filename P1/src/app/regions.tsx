@@ -1,22 +1,63 @@
 import React, { useState, useMemo } from 'react';
-import { StyleSheet, View, Text, TouchableOpacity, StatusBar, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, TouchableOpacity, StatusBar, ScrollView, Modal, Pressable } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { COLORS } from '../utils/inaturalist';
+import { useEffect } from 'react';
 
-// Categorías sugeridas por Héctor
+// Categorías oficiales de iNaturalist (Iconic Taxa)
 const CATEGORIES = [
   { id: 'all', label: 'Todo', icon: 'apps-outline', type: 'ionicons', taxonId: null },
   { id: 'birds', label: 'Aves', icon: 'bird', type: 'material', taxonId: 3 },
-  { id: 'mammals', label: 'Mamíferos', icon: 'paw-outline', type: 'ionicons', taxonId: 40115 },
-  { id: 'reptiles', label: 'Reptiles', icon: 'bug-outline', type: 'ionicons', taxonId: 26036 },
+  { id: 'reptiles', label: 'Reptiles', icon: 'snake', type: 'material', taxonId: 26036 },
+  { id: 'amphibians', label: 'Anfibios', icon: 'water-outline', type: 'ionicons', taxonId: 20978 },
+  { id: 'fish', label: 'Peces', icon: 'fish', type: 'material', taxonId: 47178 },
+  { id: 'insects', label: 'Insectos', icon: 'bug-outline', type: 'ionicons', taxonId: 47158 },
+  { id: 'arachnids', label: 'Arácnidos', icon: 'spider', type: 'material', taxonId: 47119 },
+  { id: 'fungi', label: 'Hongos', icon: 'mushroom-outline', type: 'material', taxonId: 47170 },
   { id: 'plants', label: 'Plantas', icon: 'leaf-outline', type: 'ionicons', taxonId: 47126 },
+  { id: 'protozoa', label: 'Protozoos', icon: 'microscope', type: 'material', taxonId: 47686 },
 ];
 
 export default function RegionsScreen() {
   const router = useRouter();
-  const [activeCategory, setActiveCategory] = useState(CATEGORIES[0]);
+  const params = useLocalSearchParams();
+
+  // Inicializar la categoría activa basada en parámetros si vienen de la pantalla de información
+  const initialCategory = useMemo(() => {
+    if (params.taxonId && params.taxonName) {
+      return {
+        id: 'dynamic',
+        label: params.taxonName as string,
+        icon: '', // Sin icono para especies específicas
+        type: 'none', // Tipo especial para manejar el ocultamiento
+        taxonId: parseInt(params.taxonId as string, 10),
+        hideIcon: true
+      };
+    }
+    return CATEGORIES[0];
+  }, [params.taxonId, params.taxonName]);
+
+  const [activeCategory, setActiveCategory] = useState(initialCategory);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  // Actualizar si los parámetros cambian (para cuando navegamos entre especies)
+  useEffect(() => {
+    if (params.taxonId && params.taxonName) {
+      setActiveCategory({
+        id: 'dynamic',
+        label: params.taxonName as string,
+        icon: '',
+        type: 'none',
+        taxonId: parseInt(params.taxonId as string, 10),
+        hideIcon: true
+      });
+    }
+  }, [params.taxonId, params.taxonName]);
+
+  // El resto de categorías para el menú desplegable (todas menos la activa y menos 'Todo')
+  const extraCategories = CATEGORIES.filter(cat => cat.id !== 'all');
 
   // Manejar mensajes desde el WebView
   const onMessage = (event: WebViewMessageEvent) => {
@@ -55,7 +96,6 @@ export default function RegionsScreen() {
           body { margin: 0; padding: 0; background-color: #f0f0f0; }
           #map { height: 100vh; width: 100vw; background-color: #f0f0f0; }
 
-          /* Estilos para el Popup de iNaturalist */
           .leaflet-popup-content-wrapper {
             padding: 0;
             overflow: hidden;
@@ -66,10 +106,6 @@ export default function RegionsScreen() {
             margin: 0;
             width: 280px !important;
           }
-          .leaflet-popup-tip-container {
-            margin-top: -1px;
-          }
-
           .preview-card {
             display: flex;
             padding: 10px;
@@ -93,9 +129,6 @@ export default function RegionsScreen() {
             font-size: 15px;
             font-weight: bold;
             color: #333;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
             margin: 0;
           }
           .scientific-name {
@@ -108,13 +141,10 @@ export default function RegionsScreen() {
             font-size: 10px;
             color: #888;
             margin: 2px 0;
-            display: flex;
-            align-items: center;
           }
           .date {
             font-size: 10px;
             color: #aaa;
-            margin-top: 2px;
           }
           .user-icon {
             width: 30px;
@@ -131,7 +161,7 @@ export default function RegionsScreen() {
           var map = L.map('map', {
             zoomControl: true,
             attributionControl: false,
-            maxZoom: 16 // LIMITAR EL ZOOM MÁXIMO GLOBAL PARA EVITAR ZONAS MUERTAS
+            maxZoom: 16
           }).setView([7.5, -62.5], 7);
 
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -154,10 +184,8 @@ export default function RegionsScreen() {
             maxNativeZoom: 16
           });
 
-          // Al hacer clic en un punto
           utfGrid.on('click', function (e) {
             if (e.data && e.data.id) {
-              // Cargamos los datos para el popup
               fetch('https://api.inaturalist.org/v1/observations/' + e.data.id)
                 .then(res => res.json())
                 .then(json => {
@@ -192,34 +220,18 @@ export default function RegionsScreen() {
             }
           });
 
-          // Añadimos detección de movimiento para que el usuario sepa que hay algo
-          utfGrid.on('mouseover', function (e) {
-            if (e.data) {
-              document.getElementById('map').style.cursor = 'pointer';
-            } else {
-              document.getElementById('map').style.cursor = '';
-            }
-          });
-
           function formatDate(dateStr) {
             if (!dateStr) return '';
             const date = new Date(dateStr);
             return date.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
           }
 
-          // Lógica para cambiar de capa según el zoom
           function updateLayers() {
             var zoom = map.getZoom();
             if (zoom >= 12) {
               if (map.hasLayer(gridLayer)) map.removeLayer(gridLayer);
-
-              // IMPORTANTE: Primero añadir la capa visual, LUEGO la interactiva
               if (!map.hasLayer(pointsLayer)) map.addLayer(pointsLayer);
-              if (!map.hasLayer(utfGrid)) {
-                map.addLayer(utfGrid);
-              }
-              
-              // Forzar que la capa de clics esté siempre al frente y activa
+              if (!map.hasLayer(utfGrid)) map.addLayer(utfGrid);
               utfGrid.bringToFront();
             } else {
               if (map.hasLayer(pointsLayer)) map.removeLayer(pointsLayer);
@@ -228,7 +240,6 @@ export default function RegionsScreen() {
             }
           }
 
-          // Escuchar también cuando se termina de mover el mapa para asegurar interactividad
           map.on('zoomend moveend', updateLayers);
           updateLayers();
         </script>
@@ -236,6 +247,40 @@ export default function RegionsScreen() {
       </html>
     `;
   }, [activeCategory]);
+
+  const CategoryItem = ({ cat, isActive, onPress }: { cat: any, isActive: boolean, onPress: () => void }) => (
+    <TouchableOpacity
+      style={[styles.filterTab, isActive && styles.filterTabActive]}
+      onPress={onPress}
+    >
+      {!cat.hideIcon && (
+        cat.type === 'material' ? (
+          <MaterialCommunityIcons
+            name={cat.icon as any}
+            size={18}
+            color={isActive ? COLORS.background : COLORS.textPrimary}
+          />
+        ) : (
+          <Ionicons
+            name={cat.icon as any}
+            size={18}
+            color={isActive ? COLORS.background : COLORS.textPrimary}
+          />
+        )
+      )}
+      <Text
+        style={[
+          styles.filterText,
+          isActive && styles.filterTextActive,
+          cat.hideIcon && { flex: 1, textAlign: 'center' }
+        ]}
+        numberOfLines={1}
+        ellipsizeMode="tail"
+      >
+        {cat.label}
+      </Text>
+    </TouchableOpacity>
+  );
 
   return (
     <View style={styles.container}>
@@ -248,40 +293,95 @@ export default function RegionsScreen() {
         <Text style={styles.headerTitle}>Mapa de Avistamientos</Text>
       </View>
 
+      {/* Barra de Filtros con Menú Desplegable */}
       <View style={styles.filterContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
-          {CATEGORIES.map((cat) => (
-            <TouchableOpacity
-              key={cat.id}
-              style={[
-                styles.filterTab,
-                activeCategory.id === cat.id && styles.filterTabActive
-              ]}
-              onPress={() => setActiveCategory(cat)}
-            >
-              {cat.type === 'material' ? (
-                <MaterialCommunityIcons
-                  name={cat.icon as any}
-                  size={18}
-                  color={activeCategory.id === cat.id ? COLORS.background : COLORS.textPrimary}
-                />
-              ) : (
-                <Ionicons
-                  name={cat.icon as any}
-                  size={18}
-                  color={activeCategory.id === cat.id ? COLORS.background : COLORS.textPrimary}
-                />
-              )}
-              <Text style={[
-                styles.filterText,
-                activeCategory.id === cat.id && styles.filterTextActive
-              ]}>
-                {cat.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        <View style={styles.filterRow}>
+          {/* Opción SIEMPRE fija: Todo */}
+          <CategoryItem
+            cat={CATEGORIES[0]}
+            isActive={activeCategory.id === 'all'}
+            onPress={() => setActiveCategory(CATEGORIES[0])}
+          />
+
+          {/* Opción DINÁMICA: La seleccionada o Aves por defecto si está en 'all' */}
+          <CategoryItem
+            cat={activeCategory.id === 'all' ? CATEGORIES[1] : activeCategory}
+            isActive={activeCategory.id !== 'all'}
+            onPress={() => {
+              if (activeCategory.id === 'all') {
+                setActiveCategory(CATEGORIES[1]); // Si presionas Aves estando en Todo, se activa Aves
+              } else {
+                setIsMenuOpen(true); // Si ya hay algo activo, abre el menú para cambiar
+              }
+            }}
+          />
+
+          <TouchableOpacity
+            style={styles.moreButton}
+            onPress={() => setIsMenuOpen(true)}
+          >
+            <Ionicons name="chevron-down" size={18} color={COLORS.primary} />
+            <Text style={styles.moreButtonText}>Más</Text>
+          </TouchableOpacity>
+        </View>
       </View>
+
+      {/* Menú Desplegable (Modal) */}
+      <Modal
+        visible={isMenuOpen}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsMenuOpen(false)}
+      >
+        <Pressable
+          style={styles.modalOverlay}
+          onPress={() => setIsMenuOpen(false)}
+        >
+          <View style={styles.dropdownMenu}>
+            <Text style={styles.dropdownTitle}>Otras Categorías</Text>
+            <ScrollView style={styles.dropdownScroll}>
+              {extraCategories.map((cat) => (
+                <TouchableOpacity
+                  key={cat.id}
+                  style={[
+                    styles.dropdownItem,
+                    activeCategory.id === cat.id && styles.dropdownItemActive
+                  ]}
+                  onPress={() => {
+                    setActiveCategory(cat);
+                    setIsMenuOpen(false);
+                  }}
+                >
+                  <View style={styles.dropdownIconBox}>
+                    {cat.type === 'material' ? (
+                      <MaterialCommunityIcons
+                        name={cat.icon as any}
+                        size={20}
+                        color={activeCategory.id === cat.id ? COLORS.primary : COLORS.textSecondary}
+                      />
+                    ) : (
+                      <Ionicons
+                        name={cat.icon as any}
+                        size={20}
+                        color={activeCategory.id === cat.id ? COLORS.primary : COLORS.textSecondary}
+                      />
+                    )}
+                  </View>
+                  <Text style={[
+                    styles.dropdownText,
+                    activeCategory.id === cat.id && styles.dropdownTextActive
+                  ]}>
+                    {cat.label}
+                  </Text>
+                  {activeCategory.id === cat.id && (
+                    <Ionicons name="checkmark" size={20} color={COLORS.primary} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </Pressable>
+      </Modal>
 
       <View style={styles.mapWrapper}>
         <WebView
@@ -321,22 +421,26 @@ const styles = StyleSheet.create({
   },
   filterContainer: {
     backgroundColor: COLORS.surface,
-    paddingBottom: 10,
-  },
-  filterScroll: {
+    paddingBottom: 12,
     paddingHorizontal: 16,
-    gap: 10,
   },
-  filterTab: {
+  filterRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  filterTab: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: COLORS.surfaceAlt,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingVertical: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
-    gap: 8,
+    gap: 6,
   },
   filterTabActive: {
     backgroundColor: COLORS.primary,
@@ -344,11 +448,81 @@ const styles = StyleSheet.create({
   },
   filterText: {
     color: COLORS.textPrimary,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
   },
   filterTextActive: {
     color: COLORS.background,
+  },
+  moreButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.surfaceAlt,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    gap: 4,
+  },
+  moreButtonText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownMenu: {
+    width: '80%',
+    maxHeight: '60%',
+    backgroundColor: COLORS.surface,
+    borderRadius: 20,
+    padding: 20,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+  },
+  dropdownTitle: {
+    color: COLORS.textPrimary,
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  dropdownScroll: {
+    flexGrow: 0,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.border,
+  },
+  dropdownItemActive: {
+    backgroundColor: 'rgba(200, 164, 46, 0.05)',
+  },
+  dropdownIconBox: {
+    width: 30,
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  dropdownText: {
+    flex: 1,
+    color: COLORS.textSecondary,
+    fontSize: 16,
+  },
+  dropdownTextActive: {
+    color: COLORS.primary,
+    fontWeight: 'bold',
   },
   mapWrapper: {
     flex: 1,
