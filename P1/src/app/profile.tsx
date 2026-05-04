@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   StyleSheet,
   Text,
@@ -35,6 +35,7 @@ const DEFAULT_PROFILE_PIC = 'https://images.unsplash.com/photo-1494790108377-be9
 export default function ProfileScreen() {
   const router = useRouter();
   const [userPhotos, setUserPhotos] = useState<IdentificationRecord[]>([]);
+  const [filteredPhotos, setFilteredPhotos] = useState<IdentificationRecord[]>([]);
   const [selectedPhoto, setSelectedPhoto] = useState<IdentificationRecord | null>(null);
   const [profileImage, setProfileImage] = useState<string>(DEFAULT_PROFILE_PIC);
   const [viewProfilePic, setViewProfilePic] = useState(false);
@@ -43,6 +44,13 @@ export default function ProfileScreen() {
   const [userName, setUserName] = useState('Sara Papaianni');
   const [userBio, setUserBio] = useState('Lorem ipsum dolor sit amet, consectetur adipiscing elit.');
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
+
+  // Estado para el modo de vista (grid o list)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+
+  // Estados para búsqueda
+  const [isSearchActive, setIsSearchActive] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Estados temporales para el modal
   const [tempName, setTempName] = useState('');
@@ -57,6 +65,7 @@ export default function ProfileScreen() {
   const loadData = async () => {
     const history = await getIdentifications();
     setUserPhotos(history);
+    setFilteredPhotos(history); // Inicialmente mostrar todas
 
     const savedPic = await getProfileImage();
     if (savedPic) setProfileImage(savedPic);
@@ -67,6 +76,18 @@ export default function ProfileScreen() {
       setUserBio(savedData.bio);
     }
   };
+
+  // Lógica de filtrado en tiempo real
+  useEffect(() => {
+    if (searchQuery.trim() === '') {
+      setFilteredPhotos(userPhotos);
+    } else {
+      const filtered = userPhotos.filter(photo =>
+        photo.species.toLowerCase().includes(searchQuery.toLowerCase())
+      );
+      setFilteredPhotos(filtered);
+    }
+  }, [searchQuery, userPhotos]);
 
   const handleEditPress = () => {
     setTempName(userName);
@@ -155,6 +176,13 @@ export default function ProfileScreen() {
     }
   };
 
+  const toggleSearch = () => {
+    if (isSearchActive) {
+      setSearchQuery('');
+    }
+    setIsSearchActive(!isSearchActive);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -173,9 +201,6 @@ export default function ProfileScreen() {
             <Text style={styles.logoText}>BioLife</Text>
           </TouchableOpacity>
           <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerButton}>
-              <Ionicons name="search-outline" size={24} color="#000" />
-            </TouchableOpacity>
             <TouchableOpacity style={styles.headerButton}>
               <Ionicons name="menu-outline" size={24} color="#000" />
             </TouchableOpacity>
@@ -227,31 +252,98 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Photo Grid */}
-        <View style={styles.gridContainer}>
-          {userPhotos.length > 0 ? (
-            userPhotos.map((item) => (
+        {/* View Toggle Selector & Search */}
+        <View style={styles.viewToggleContainer}>
+          <View style={styles.leftToggles}>
+            <TouchableOpacity
+              style={[styles.toggleBtn, viewMode === 'grid' && styles.toggleBtnActive]}
+              onPress={() => setViewMode('grid')}
+            >
+              <Ionicons name="grid-outline" size={20} color={viewMode === 'grid' ? '#fff' : '#3A4D39'} />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.toggleBtn, viewMode === 'list' && styles.toggleBtnActive]}
+              onPress={() => setViewMode('list')}
+            >
+              <Ionicons name="list-outline" size={20} color={viewMode === 'list' ? '#fff' : '#3A4D39'} />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.searchButton, isSearchActive && styles.searchButtonActive]}
+            onPress={toggleSearch}
+          >
+            <Ionicons
+              name={isSearchActive ? "close-outline" : "search-outline"}
+              size={20}
+              color={isSearchActive ? "#fff" : "#3A4D39"}
+            />
+          </TouchableOpacity>
+        </View>
+
+        {/* Search Bar Input */}
+        {isSearchActive && (
+          <View style={styles.searchBarContainer}>
+            <TextInput
+              style={styles.searchBarInput}
+              placeholder="Buscar especie..."
+              placeholderTextColor="#A9A9A9"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoFocus
+            />
+          </View>
+        )}
+
+        {/* Photo Grid / List */}
+        <View style={viewMode === 'grid' ? styles.gridContainer : styles.listContainer}>
+          {filteredPhotos.length > 0 ? (
+            filteredPhotos.map((item) => (
               <TouchableOpacity
                 key={item.id}
-                style={styles.photoWrapper}
+                style={viewMode === 'grid' ? styles.photoWrapper : styles.listWrapper}
                 onPress={() => setSelectedPhoto(item)}
               >
                 <Image
                   source={{ uri: item.uri }}
-                  style={styles.gridImage}
+                  style={viewMode === 'grid' ? styles.gridImage : styles.listImage}
                   resizeMode="cover"
                 />
-                <View style={styles.speciesTag}>
-                  <Text style={styles.speciesTagText} numberOfLines={1}>
-                    {item.species.split(',')[0]}
-                  </Text>
-                </View>
+                {viewMode === 'grid' ? (
+                  <View style={styles.speciesTag}>
+                    <Text style={styles.speciesTagText} numberOfLines={1}>
+                      {item.species.split(',')[0]}
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.listContent}>
+                    <Text style={styles.listSpeciesName} numberOfLines={1}>
+                      {item.species.split(',')[0]}
+                    </Text>
+                    <Text style={styles.listDate}>
+                      {new Date(item.date).toLocaleDateString('es-ES', {
+                        day: 'numeric',
+                        month: 'short'
+                      })}
+                    </Text>
+                  </View>
+                )}
               </TouchableOpacity>
             ))
           ) : (
             <View style={styles.emptyContainer}>
-              <Ionicons name="camera-outline" size={48} color="#3A4D39" opacity={0.3} />
-              <Text style={styles.emptyText}>Aún no has identificado ninguna especie</Text>
+              <Ionicons
+                name={isSearchActive ? "search-outline" : "camera-outline"}
+                size={48}
+                color="#3A4D39"
+                opacity={0.3}
+              />
+              <Text style={styles.emptyText}>
+                {isSearchActive
+                  ? `No se encontraron resultados para "${searchQuery}"`
+                  : "Aún no has identificado ninguna especie"
+                }
+              </Text>
             </View>
           )}
         </View>
@@ -553,6 +645,91 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
   },
+  // List View Styles
+  listContainer: {
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  listWrapper: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 10,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 5,
+    elevation: 2,
+  },
+  listImage: {
+    width: 70,
+    height: 70,
+    borderRadius: 15,
+  },
+  listContent: {
+    flex: 1,
+    marginLeft: 15,
+  },
+  listSpeciesName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#3A4D39',
+    marginBottom: 4,
+  },
+  listDate: {
+    fontSize: 12,
+    color: '#3A4D39',
+    opacity: 0.6,
+  },
+  // View Toggle Styles
+  viewToggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 25,
+    marginBottom: 15,
+  },
+  leftToggles: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  toggleBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(58, 77, 57, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  toggleBtnActive: {
+    backgroundColor: '#3A4D39',
+  },
+  searchButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(58, 77, 57, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchButtonActive: {
+    backgroundColor: '#3A4D39',
+  },
+  searchBarContainer: {
+    paddingHorizontal: 25,
+    marginBottom: 15,
+  },
+  searchBarInput: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#000',
+    borderWidth: 1,
+    borderColor: 'rgba(58, 77, 57, 0.1)',
+  },
   emptyContainer: {
     width: '100%',
     alignItems: 'center',
@@ -564,6 +741,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
     fontSize: 14,
     textAlign: 'center',
+    paddingHorizontal: 40,
   },
   // Modal Styles
   modalOverlay: {
