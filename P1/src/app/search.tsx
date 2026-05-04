@@ -15,7 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Location from 'expo-location';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
@@ -77,6 +77,10 @@ export default function SearchScreen() {
   const camera = useRef<CameraView>(null);
   const [isTakingPhoto, setIsTakingPhoto] = useState<boolean>(false);
   const [isTakingBurst, setIsTakingBurst] = useState<boolean>(false);
+
+  // ── Ráfaga Manual ──
+  const [burstPhotos, setBurstPhotos] = useState<{ uri: string; size: number }[]>([]);
+  const [viewingBurstPhoto, setViewingBurstPhoto] = useState<string | null>(null);
 
   // ── Zoom de Cámara ──
   const [zoom, setZoom] = useState<number>(0);
@@ -158,38 +162,36 @@ export default function SearchScreen() {
   // ─── Cámara: ráfaga (burst) y nitidez ───────────────────────────────────
 
   /**
-   * Realiza una ráfaga (3 fotos consecutivas).
-   * Despues, analiza localmente el tamaño del archivo jpeg de cada una.
-   * HEURÍSTICA: En la compresión JPEG, las imágenes borrosas tienen menos detalle (menos alta frecuencia)
-   * y se comprimen mucho más (menor tamaño). Las imágenes nítidas pesan más.
-   * Esto sirve como un proxy ligero y sin dependencias nativas para medir enfoque/nitidez en JS.
-   * Se descartan las que estén por debajo de un umbral o se elige simplemente la más pesada.
+   * Captura una foto individual rápida y la añade a la cola de la ráfaga.
    */
-  const takeBurstAndIdentify = async (): Promise<void> => {
+  const addPhotoToBurst = async (): Promise<void> => {
     if (!camera.current) return;
     try {
       setIsTakingBurst(true);
-      const burstCount = 3;
-      const photos: { uri: string; size: number }[] = [];
-
-      // Tomar ráfaga rápida
-      for (let i = 0; i < burstCount; i++) {
-        // En expo-camera, si pedimos base64 es un proceso lento. Usamos calidad ~0.8 y solo URI.
-        const photo = await camera.current.takePictureAsync({ quality: 0.8 });
-        if (photo?.uri) {
-          const fileInfo = await FileSystem.getInfoAsync(photo.uri);
-          if (fileInfo.exists && fileInfo.size) {
-            photos.push({ uri: photo.uri, size: fileInfo.size });
-          }
+      const photo = await camera.current.takePictureAsync({ quality: 0.8 });
+      if (photo?.uri) {
+        const fileInfo = await FileSystem.getInfoAsync(photo.uri);
+        if (fileInfo.exists && fileInfo.size) {
+          setBurstPhotos((prev) => [...prev, { uri: photo.uri, size: fileInfo.size }]);
         }
       }
+    } catch (error) {
+      console.log("Error al capturar ráfaga:", error);
+    } finally {
+      setIsTakingBurst(false);
+    }
+  };
 
-      if (photos.length === 0) throw new Error("No se pudo capturar la ráfaga");
+  /**
+   * Procesa todas las fotos recolectadas en la ráfaga, elige la de mejor calidad, y la analiza.
+   */
+  const processBurstSequence = async (): Promise<void> => {
+    if (burstPhotos.length === 0) return;
+    try {
+      setIsTakingBurst(true);
 
       // Evaluar la "nitidez" a través del tamaño del archivo.
-      // 1. Descartar extremadamente pequeñas (completamente borrosas/negras).
-      // 2. Ordenar descendentemente por tamaño para elegir la "más nítida".
-      const sortedBySharpness = photos.sort((a, b) => b.size - a.size);
+      const sortedBySharpness = [...burstPhotos].sort((a, b) => b.size - a.size);
       const bestPhoto = sortedBySharpness[0];
 
       // Proceder a enviar la MEJOR FOTO al backend
@@ -214,12 +216,23 @@ export default function SearchScreen() {
         isOnline: true,
       });
 
+      // Limpiamos la cola de la ráfaga
+      setBurstPhotos([]);
+
     } catch (error) {
       const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-      Alert.alert('Error en ráfaga', message);
+      Alert.alert('Error en análisis de ráfaga', message);
     } finally {
       setIsTakingBurst(false);
     }
+  };
+
+  /**
+   * Elimina una foto específica de la ráfaga.
+   */
+  const removeBurstPhoto = (uriToRemove: string) => {
+    setBurstPhotos((prev) => prev.filter((p) => p.uri !== uriToRemove));
+    setViewingBurstPhoto(null);
   };
 
   // ─── Cámara: tomar foto individual ────────────────────────────────────────
@@ -681,6 +694,45 @@ export default function SearchScreen() {
           <Text style={styles.overlayText}>Toca para enfocar</Text>
         </View>
 
+        {/* ── Galería de Ráfaga Superior ── */}
+        {burstPhotos.length > 0 && (
+          <View style={styles.burstGallery}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {burstPhotos.map((photo, index) => (
+                <TouchableOpacity key={index} onPress={() => setViewingBurstPhoto(photo.uri)}>
+                  <Image source={{ uri: photo.uri }} style={styles.burstThumbnail} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.processBurstButton}
+              onPress={processBurstSequence}
+              disabled={isTakingBurst}
+            >
+              {isTakingBurst ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.processBurstButtonText}>Analizar ({burstPhotos.length})</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── Visor de foto en pantalla completa ── */}
+        {viewingBurstPhoto && (
+          <View style={styles.fullScreenOverlay}>
+            <Image source={{ uri: viewingBurstPhoto }} style={styles.fullScreenImage} resizeMode="contain" />
+            
+            <TouchableOpacity style={styles.closeFullScreenBtn} onPress={() => setViewingBurstPhoto(null)}>
+              <Ionicons name="close" size={32} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.deleteFullScreenBtn} onPress={() => removeBurstPhoto(viewingBurstPhoto)}>
+              <Ionicons name="trash" size={32} color="#ff4444" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* ── Botón de captura ── */}
         <View style={styles.captureContainer}>
 
@@ -703,9 +755,9 @@ export default function SearchScreen() {
               styles.burstButton,
               (isTakingPhoto || isTakingBurst) && styles.captureButtonDisabled,
             ]}
-            onPress={takeBurstAndIdentify}
+            onPress={addPhotoToBurst}
             disabled={isTakingPhoto || isTakingBurst}
-            accessibilityLabel="Tomar ráfaga de fotos e identificar"
+            accessibilityLabel="Toma una foto más para la ráfaga"
           >
             {isTakingBurst ? (
               <ActivityIndicator size="small" color="#ffffff" />
@@ -785,6 +837,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF8C00', justifyContent: 'center', alignItems: 'center',
   },
   burstButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
+
+  burstGallery: {
+    position: 'absolute', top: 160, left: 10, right: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  burstThumbnail: { width: 50, height: 50, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: '#fff' },
+  processBurstButton: { backgroundColor: '#4F6F52', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, marginLeft: 10 },
+  processBurstButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
+
+  fullScreenOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'black', zIndex: 100, justifyContent: 'center', alignItems: 'center' },
+  fullScreenImage: { width: '100%', height: '100%' },
+  closeFullScreenBtn: { position: 'absolute', top: 50, right: 20, zIndex: 101, backgroundColor: 'rgba(0,0,0,0.5)', padding: 8, borderRadius: 25 },
+  deleteFullScreenBtn: { position: 'absolute', top: 50, left: 20, zIndex: 101, backgroundColor: 'rgba(0,0,0,0.5)', padding: 8, borderRadius: 25 },
 
   // Result overlay and card (Duplicates - Commented to avoid errors)
   // resultOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.88)', zIndex: 10 },
