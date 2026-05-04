@@ -174,7 +174,7 @@ export default function SpeciesListScreen() {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
         <HeaderBuscador onSearch={setSearchQuery} />
         {renderTopMenu()}
         <WeatherWidget />
@@ -187,7 +187,7 @@ export default function SpeciesListScreen() {
   if (error || speciesList.length === 0) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
         <HeaderBuscador onSearch={setSearchQuery} />
         {renderTopMenu()}
         <WeatherWidget />
@@ -205,7 +205,7 @@ export default function SpeciesListScreen() {
   // ── Render: Home Content ──
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
 
       <HeaderBuscador onSearch={setSearchQuery} />
       {renderTopMenu()}

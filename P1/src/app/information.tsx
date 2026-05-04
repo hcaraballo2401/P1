@@ -274,7 +274,7 @@ export default function SpeciesDetailScreen() {
   if (isLoading) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
         <View style={styles.navBar}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
@@ -291,7 +291,7 @@ export default function SpeciesDetailScreen() {
   if (error || !species) {
     return (
       <View style={styles.container}>
-        <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+        <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
         <View style={styles.navBar}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={COLORS.textPrimary} />
@@ -311,7 +311,7 @@ export default function SpeciesDetailScreen() {
   // ── Render: Contenido Real ──
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
       
       <View style={styles.navBar}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>

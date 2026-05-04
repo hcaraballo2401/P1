@@ -1,4 +1,4 @@
-export const INAT_PLACE_ID = 12748;
+export const INAT_PLACE_ID = '12446,13301,13302'; // Amazonas, Bolivar, Delta Amacuro (Venezuela)
 export const INAT_API_BASE = 'https://api.inaturalist.org/v2';
 
 export const REQUEST_HEADERS = {
@@ -7,23 +7,24 @@ export const REQUEST_HEADERS = {
 };
 
 export const COLORS = {
-  background: '#0A0A0A',
-  surface: '#141414',
-  surfaceAlt: '#1C1C1C',
-  border: '#2A2A2A',
-  primary: '#C8A42E',
-  primaryMuted: 'rgba(200,164,46,0.15)',
+  background: '#EDF4E9',
+  surface: '#FFFFFF',
+  surfaceAlt: '#F4F9F2',
+  border: '#D0E3CD',
+  primary: '#96E0A0',
+  primaryMuted: 'rgba(150,224,160,0.2)',
+  accent: '#2D5A27',
   danger: '#E05252',
   dangerMuted: 'rgba(224,82,82,0.15)',
   warning: '#D4883A',
   warningMuted: 'rgba(212,136,58,0.15)',
   success: '#4CAF6E',
   successMuted: 'rgba(76,175,110,0.15)',
-  textPrimary: '#F0EAD6',
-  textSecondary: '#9A8F78',
-  textMuted: '#5A5040',
-  skeletonBase: '#1A1A1A',
-  skeletonHighlight: '#2A2A2A',
+  textPrimary: '#1A2E1A',
+  textSecondary: '#4A5D4A',
+  textMuted: '#7D947D',
+  skeletonBase: '#DCEBDB',
+  skeletonHighlight: '#EDF4E9',
 };
 
 export interface ConservationStatus {

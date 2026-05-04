@@ -1,29 +1,18 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState } from 'react';
 import { View, StyleSheet, ActivityIndicator, Dimensions } from 'react-native';
-import YoutubePlayer from 'react-native-youtube-iframe';
+import { WebView } from 'react-native-webview';
 
 interface WildlifePlayerProps {
   videoId: string;
 }
 
 export default function WildlifePlayer({ videoId }: WildlifePlayerProps) {
-  const [playing, setPlaying] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const windowWidth = Dimensions.get('window').width;
   
   // Calcular proporción 16:9 basándonos en el ancho (restando padding)
   const containerWidth = windowWidth - 32; 
   const playerHeight = (containerWidth * 9) / 16;
-
-  const onStateChange = useCallback((state: string) => {
-    if (state === 'ended') {
-      setPlaying(false);
-    }
-  }, []);
-
-  const onReady = useCallback(() => {
-    setIsReady(true);
-  }, []);
 
   return (
     <View style={[styles.container, { height: playerHeight, width: containerWidth }]}>
@@ -32,20 +21,17 @@ export default function WildlifePlayer({ videoId }: WildlifePlayerProps) {
           <ActivityIndicator size="large" color="#4ade80" />
         </View>
       )}
-      <YoutubePlayer
-        height={playerHeight}
-        width={containerWidth}
-        play={playing}
-        videoId={videoId}
-        onChangeState={onStateChange}
-        onReady={onReady}
-        initialPlayerParams={{
-          controls: true,
-          modestbranding: true,
-          preventFullScreen: false,
-          iv_load_policy: 3,
-          rel: false,
+      <WebView
+        style={{ flex: 1, backgroundColor: '#000' }}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        allowsInlineMediaPlayback={true}
+        mediaPlaybackRequiresUserAction={false}
+        onLoad={() => setIsReady(true)}
+        source={{ 
+          uri: `https://www.youtube.com/embed/${videoId}?playsinline=1&controls=1&modestbranding=1&rel=0` 
         }}
+        userAgent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
       />
     </View>
   );

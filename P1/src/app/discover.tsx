@@ -1,12 +1,12 @@
 import React, { useState, useCallback } from 'react';
-import { 
-  StyleSheet, 
-  Text, 
-  View, 
-  FlatList, 
-  TouchableOpacity, 
-  ActivityIndicator, 
-  StatusBar 
+import {
+  StyleSheet,
+  Text,
+  View,
+  FlatList,
+  TouchableOpacity,
+  ActivityIndicator,
+  StatusBar
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -38,10 +38,9 @@ interface Stream {
 }
 
 const FILTERS = [
+  { id: 'amazonas_defecto', label: 'Amazonas (Defecto)', query: 'DEFAULT' },
+  { id: 'rios_venezuela', label: 'Ríos de Venezuela', query: '?region=venezuela rivers' },
   { id: 'aves', label: 'Aves', query: '?animal=birds' },
-  { id: 'africa', label: 'África', query: '?region=africa' },
-  { id: 'oceano', label: 'Océano', query: '?region=ocean' },
-  { id: 'osos', label: 'Osos', query: '?animal=bears' },
 ];
 
 export default function DiscoverScreen() {
@@ -67,10 +66,10 @@ export default function DiscoverScreen() {
       if (!response.ok) {
         throw new Error(`Error del servidor: ${response.status}`);
       }
-      
+
       const data = await response.json();
       setStreams(data.streams || []);
-      
+
       if (data.streams && data.streams.length > 0) {
         setActiveVideoId(data.streams[0].video_id);
       } else {
@@ -97,14 +96,19 @@ export default function DiscoverScreen() {
       setActiveVideoId(DEFAULT_VIDEO_ID);
     } else {
       setActiveFilter(filter.id);
-      fetchStreams(filter.query);
+      if (filter.query === 'DEFAULT') {
+        setStreams([]);
+        setActiveVideoId(DEFAULT_VIDEO_ID);
+      } else {
+        fetchStreams(filter.query);
+      }
     }
   };
 
   const renderStreamItem = ({ item }: { item: Stream }) => {
     const isSelected = item.video_id === activeVideoId;
     return (
-      <TouchableOpacity 
+      <TouchableOpacity
         style={[styles.streamCard, isSelected && styles.streamCardSelected]}
         onPress={() => setActiveVideoId(item.video_id)}
         activeOpacity={0.8}
@@ -124,8 +128,8 @@ export default function DiscoverScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={COLORS.background} />
-      
+      <StatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+
       <View style={styles.header}>
         <Ionicons name="videocam-outline" size={28} color={COLORS.primary} />
         <Text style={styles.headerTitle}>Live Cams</Text>
@@ -144,9 +148,9 @@ export default function DiscoverScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.filtersList}
           renderItem={({ item }) => (
-            <TouchableOpacity 
+            <TouchableOpacity
               style={[
-                styles.filterButton, 
+                styles.filterButton,
                 activeFilter === item.id && styles.filterButtonActive
               ]}
               onPress={() => handleFilterPress(item)}
