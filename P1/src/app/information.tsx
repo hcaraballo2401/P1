@@ -447,11 +447,10 @@ export default function SpeciesDetailScreen() {
             style={styles.miniMapContainer}
             onPress={() => {
               router.push({
-                pathname: '/discover' as any,
+                pathname: '/regions',
                 params: {
                   taxonId: species.id.toString(),
-                  taxonName: species.commonName,
-                  taxonIcon: species.kingdom // Usamos el reino para intentar inferir el icono
+                  taxonName: species.commonName
                 }
               });
             }}

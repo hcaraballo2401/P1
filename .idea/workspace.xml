@@ -4,7 +4,14 @@
     <option name="autoReloadType" value="NONE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="02867d5c-8ff6-4e3b-a20e-07990a204c89" name="Changes" comment="" />
+    <list default="true" id="02867d5c-8ff6-4e3b-a20e-07990a204c89" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/caches/deviceStreaming.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/P1/package-lock.json" beforeDir="false" afterPath="$PROJECT_DIR$/P1/package-lock.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/P1/package.json" beforeDir="false" afterPath="$PROJECT_DIR$/P1/package.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/P1/src/app/information.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/P1/src/app/information.tsx" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/P1/src/app/regions.tsx" beforeDir="false" afterPath="$PROJECT_DIR$/P1/src/app/regions.tsx" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -57,7 +64,19 @@
       <map>
         <entry key="MAIN">
           <value>
-            <State />
+            <State>
+              <option name="FILTERS">
+                <map>
+                  <entry key="branch">
+                    <value>
+                      <list>
+                        <option value="tiago-rama-heatmap" />
+                      </list>
+                    </value>
+                  </entry>
+                </map>
+              </option>
+            </State>
           </value>
         </entry>
       </map>
