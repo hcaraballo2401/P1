@@ -6,7 +6,10 @@ import {
   Alert,
   ActivityIndicator,
   Image,
+  TextInput,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -24,25 +27,22 @@ import {
 import { uploadToINaturalist, INaturalistUploadError } from '../utils/inaturalistUpload';
 import type { NewObservationInput, LocalObservation } from '../types/observation';
 
-// ─── Constantes de configuración ─────────────────────────────────────────────
+// ─── Constantes ───────────────────────────────────────────────────────────────
 
-/**
- * Backend de identificación (FastAPI).
- * Desplegado en Render.
- */
 const API_BASE_URL = 'https://p1-q8lf.onrender.com';
 const BACKEND_URL = `${API_BASE_URL}/api/v1/identificacion/identificar`;
-const HEALTH_URL = `${API_BASE_URL}/health`;
 
 /**
- * Token de la API de iNaturalist del usuario autenticado.
- * TODO: Mover a pantalla de Configuración para que el usuario lo ingrese.
- * Obtener en: https://www.inaturalist.org/users/api_token
+ * Timeout en ms para la petición al backend de IA.
+ * Si la red es lenta o el servidor está dormido (Render free tier),
+ * se trata como modo offline en lugar de bloquear al usuario.
  */
+const AI_TIMEOUT_MS = 12000;
+
 const INAT_API_TOKEN =
   'eyJhbGciOiJIUzUxMiJ9.eyJ1c2VyX2lkIjoxMDM4MDQ0MSwiZXhwIjoxNzc3OTQ0NTA0fQ.LvEgwu3r45R3gYm47baFq6VgrjG-khjLuFNhAZeKNYCW0NPZseScDP6Sq1qRz1JjZZCgne07y3CrwALJBDMpjw';
 
-// ─── Interfaces TypeScript ─────────────────────────────────────────────────────
+// ─── Interfaces ───────────────────────────────────────────────────────────────
 
 interface IdentificacionResponse {
   especie_principal: { etiqueta: string; confianza: number };
@@ -50,14 +50,18 @@ interface IdentificacionResponse {
   gemma_respuesta?: string;
 }
 
-/** Datos recolectados al momento de tomar la foto (GPS + resultado IA) */
+/**
+ * Snapshot completo del momento de captura.
+ * `aiResult` es null cuando se está en modo offline (sin conexión o backend caído).
+ */
 interface CaptureSnapshot {
   photoPath: string;
-  result: IdentificacionResponse;
-  /** Ubicación GPS capturada concurrentemente. Null si GPS no disponible */
   location: Location.LocationObject | null;
-  /** Timestamp ISO8601 exacto del momento de captura */
   capturedAt: string;
+  /** Resultado de la IA. NULL → modo offline, la identificación queda pendiente */
+  aiResult: IdentificacionResponse | null;
+  /** true = se obtuvo respuesta de la IA; false = se capturó sin red */
+  isOnline: boolean;
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
@@ -68,144 +72,141 @@ export default function SearchScreen() {
   // ── Cámara ──
   const [permission, requestPermission] = useCameraPermissions();
   const hasCameraPermission = permission?.granted;
-  const requestCameraPermission = async () => {
-    const res = await requestPermission();
-    return res?.granted;
-  };
-
   const camera = useRef<CameraView>(null);
   const [isTakingPhoto, setIsTakingPhoto] = useState<boolean>(false);
 
   // ── GPS ──
   const [locationPermission, setLocationPermission] = useState<boolean>(false);
 
-  // ── API Health ──
-  const [isTestingApi, setIsTestingApi] = useState<boolean>(false);
-
-  // ── Resultados de Identificación + snapshot de captura ──
+  // ── Snapshot ──
   const [captureSnapshot, setCaptureSnapshot] = useState<CaptureSnapshot | null>(null);
 
-  // ── Estado de guardado / subida ──
+  // ── Nota manual de especie (modo offline) ──
+  const [speciesNote, setSpeciesNote] = useState<string>('');
+
+  // ── Estados de acción ──
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isUploading, setIsUploading] = useState<boolean>(false);
 
   // ─── Efectos ──────────────────────────────────────────────────────────────
 
   useEffect(() => {
-    // Inicializar base de datos SQLite al montar la pantalla
     initDatabase();
-
-    // Solicitar permiso de ubicación
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       setLocationPermission(status === 'granted');
     })();
   }, []);
 
-  // ─── Cámara: foco por tap ─────────────────────────────────────────────────
+  // ─── Tap gesture (autofocus nativo) ──────────────────────────────────────
 
-  const tapGesture = Gesture.Tap().onEnd((_event) => {
-    // CameraView maneja autofocus nativo
-  });
+  const tapGesture = Gesture.Tap().onEnd((_event) => {});
 
-  // ─── API Health Check ─────────────────────────────────────────────────────
+  // ─── Captura: foto + GPS + IA (si hay red) ───────────────────────────────
 
-  const testBackendHealth = async (): Promise<void> => {
+  /**
+   * Intenta llamar al backend de IA con un timeout controlado.
+   * Si no hay red o supera el timeout, retorna null (modo offline).
+   *
+   * @param photoUri - URI local de la foto a identificar
+   * @returns Respuesta de la IA o null si no hay conexión
+   */
+  const attemptAiIdentification = async (
+    photoUri: string
+  ): Promise<IdentificacionResponse | null> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+
     try {
-      setIsTestingApi(true);
-      const response = await fetch(HEALTH_URL, { method: 'GET' });
-      const text = await response.text();
-      if (!response.ok) {
-        Alert.alert('API no respondió OK', `HTTP ${response.status}\n${text.slice(0, 400)}`);
-        return;
-      }
-      Alert.alert('Conexión al backend OK', text.slice(0, 500));
-    } catch (error) {
-      const msg = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-      Alert.alert(
-        'No se alcanzó el backend',
-        `${msg}\n\nAsegúrate de tener conexión a Internet y que el backend en Render esté activo.`,
-      );
+      const formData = new FormData();
+      const uri = photoUri.startsWith('file://') ? photoUri : `file://${photoUri}`;
+      formData.append('archivo', { uri, type: 'image/jpeg', name: 'photo.jpg' } as unknown as Blob);
+
+      const response = await fetch(BACKEND_URL, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal,
+      });
+
+      if (!response.ok) return null;
+      return await response.json() as IdentificacionResponse;
+    } catch {
+      // Sin red, timeout o backend caído → modo offline
+      return null;
     } finally {
-      setIsTestingApi(false);
+      clearTimeout(timeoutId);
     }
   };
 
-  // ─── Cámara: tomar foto e identificar ─────────────────────────────────────
-
   /**
-   * Captura una foto y simultáneamente obtiene la ubicación GPS.
-   * Ambas operaciones corren en paralelo via Promise.all() para minimizar
-   * el tiempo de espera del usuario y asegurar que el timestamp y
-   * las coordenadas correspondan al mismo instante de observación.
-   *
-   * Luego envía la foto al backend para su identificación por IA.
+   * Captura foto + GPS en paralelo, luego intenta identificación por IA.
+   * Si la IA no responde dentro del timeout, continúa en modo offline.
+   * El avistamiento siempre se puede guardar en SQLite independientemente.
    */
   const takePhoto = async (): Promise<void> => {
     if (!camera.current) return;
 
     try {
       setIsTakingPhoto(true);
-
-      // Marca de tiempo exacta del momento de captura (Darwin Core: eventDate)
       const capturedAt = new Date().toISOString();
 
-      // Captura foto + GPS en paralelo
+      // 1. Foto + GPS en paralelo (sin red)
       const [photo, location] = await Promise.all([
         camera.current.takePictureAsync(),
         locationPermission
-          ? Location.getCurrentPositionAsync({
-              accuracy: Location.Accuracy.High,
-            }).catch(() => null)
+          ? Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }).catch(() => null)
           : Promise.resolve(null),
       ]);
 
       if (!photo) throw new Error('No se capturó la foto');
 
-      const formData = new FormData();
-      const uri = photo.uri.startsWith('file://') ? photo.uri : `file://${photo.uri}`;
-      formData.append('archivo', { uri, type: 'image/jpeg', name: 'photo.jpg' } as unknown as Blob);
-      const response = await fetch(BACKEND_URL, { method: 'POST', body: formData });
+      // 2. Intentar IA (con timeout — no bloquea si no hay red)
+      const aiResult = await attemptAiIdentification(photo.uri);
 
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => null);
-        const detail = errorBody?.detail ?? `${response.status} ${response.statusText}`;
-        throw new Error(`Error en Backend: ${detail}`);
-      }
-
-      const result: IdentificacionResponse = await response.json();
-
+      setSpeciesNote('');
       setCaptureSnapshot({
         photoPath: photo.uri,
-        result,
         location: location as Location.LocationObject | null,
         capturedAt,
+        aiResult,
+        isOnline: aiResult !== null,
       });
-
     } catch (error) {
       const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-      Alert.alert('No se pudo identificar el animal', message);
+      Alert.alert('Error al capturar', message);
     } finally {
       setIsTakingPhoto(false);
     }
   };
 
-  // ─── Helpers: construir datos del avistamiento ────────────────────────────
+  // ─── Builder de datos Darwin Core ────────────────────────────────────────
 
   /**
-   * Construye el objeto NewObservationInput con todos los datos disponibles
-   * del snapshot de captura actual.
+   * Construye NewObservationInput con todos los datos disponibles.
+   * Compatible con Darwin Core y con los campos requeridos por uploadToINaturalist.
    *
-   * @param snapshot - Datos del momento de captura (foto, GPS, respuesta IA)
-   * @returns Objeto listo para insertar en SQLite
+   * Campos clave para subida posterior:
+   * - image_path   → ruta local de la foto (se sube como multipart)
+   * - latitude/longitude → coordenadas GPS para iNaturalist
+   * - observed_at  → timestamp ISO8601 (Darwin Core: eventDate)
+   * - species_guess / scientific_name → identificación de especie
+   * - confidence / ai_raw_response → trazabilidad del proceso de IA
    */
-  const buildObservationData = (snapshot: CaptureSnapshot): NewObservationInput => {
-    const { photoPath, result, location, capturedAt } = snapshot;
-    const gemmaText = result.gemma_respuesta ?? '';
+  const buildObservationData = (
+    snapshot: CaptureSnapshot,
+    userNote: string
+  ): NewObservationInput => {
+    const { photoPath, aiResult, location, capturedAt } = snapshot;
 
-    // Extraer nombre científico de la respuesta de Gemma
-    const scientificMatch = gemmaText.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
-    const scientificName = scientificMatch?.[1]?.trim() ?? null;
+    // Extraer nombre científico de Gemma si está disponible
+    let scientificName: string | null = null;
+    if (aiResult?.gemma_respuesta) {
+      const match = aiResult.gemma_respuesta.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
+      scientificName = match?.[1]?.trim() ?? null;
+    }
+
+    // species_guess: prioridad → IA > nota del usuario > null
+    const speciesGuess = aiResult?.especie_principal.etiqueta ?? (userNote.trim() || null);
 
     return {
       image_path: photoPath.startsWith('file://') ? photoPath : `file://${photoPath}`,
@@ -213,65 +214,67 @@ export default function SearchScreen() {
       longitude: location?.coords.longitude ?? null,
       accuracy: location?.coords.accuracy ?? null,
       observed_at: capturedAt,
-      species_guess: result.especie_principal.etiqueta,
+      species_guess: speciesGuess,
       scientific_name: scientificName,
-      confidence: result.especie_principal.confianza,
-      ai_raw_response: JSON.stringify(result),
+      confidence: aiResult?.especie_principal.confianza ?? null,
+      // ai_raw_response guardado para trazabilidad y re-procesamiento futuro
+      ai_raw_response: aiResult ? JSON.stringify(aiResult) : null,
     };
   };
 
-  // ─── Handlers de acción: Guardar y Subir ─────────────────────────────────
+  // ─── Guardar en SQLite (offline-safe) ────────────────────────────────────
 
   /**
-   * Guarda el avistamiento en SQLite local (sync_status = PENDING).
-   * NO sube a iNaturalist. Útil para guardar sin conexión.
+   * Guarda el avistamiento en SQLite con sync_status = PENDING.
+   * Funciona sin conexión. El registro queda en cola para subida posterior.
    */
   const handleSaveObservation = async (): Promise<void> => {
     if (!captureSnapshot) return;
 
     try {
       setIsSaving(true);
-      const observationData = buildObservationData(captureSnapshot);
+      const observationData = buildObservationData(captureSnapshot, speciesNote);
       const localId = saveObservation(observationData);
 
       Alert.alert(
         '✅ Avistamiento guardado',
-        `Guardado localmente (ID: ${localId}).\nSe puede subir a iNaturalist más adelante.`,
+        `Guardado localmente (ID: ${localId}).\nSe subirá a iNaturalist cuando haya conexión estable.`,
         [{ text: 'OK', onPress: () => setCaptureSnapshot(null) }]
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      Alert.alert('Error al guardar', `No se pudo guardar el avistamiento:\n${message}`);
+      Alert.alert('Error al guardar', message);
     } finally {
       setIsSaving(false);
     }
   };
 
+  // ─── Guardar + Subir a iNaturalist (solo online) ─────────────────────────
+
   /**
-   * Guarda el avistamiento en SQLite Y lo sube inmediatamente a iNaturalist.
+   * Guarda en SQLite Y sube inmediatamente a iNaturalist.
+   * Solo disponible cuando hay resultado de IA (isOnline = true).
    *
    * Flujo:
-   * 1. INSERT en SQLite (sync_status = PENDING)
-   * 2. POST a iNaturalist API (observación + foto)
-   * 3. Si éxito → UPDATE sync_status = SYNCED con el id remoto
-   * 4. Si falla → UPDATE sync_status = ERROR con el mensaje de error
-   *
-   * El registro siempre queda en SQLite independientemente del resultado online.
+   * 1. INSERT SQLite (PENDING) — garantía de no perder datos
+   * 2. POST /observations → iNaturalist
+   * 3. POST /observation_photos → adjunta la foto
+   * 4. UPDATE SQLite → SYNCED con id remoto
+   * 5. Si falla en cualquier paso → UPDATE SQLite → ERROR con diagnóstico
    */
   const handleUploadObservation = async (): Promise<void> => {
     if (!captureSnapshot) return;
 
-    // localId declarado fuera del try para poder usarlo en catch (markSyncError)
     let localId: number | null = null;
 
     try {
       setIsUploading(true);
-      const observationData = buildObservationData(captureSnapshot);
+      const observationData = buildObservationData(captureSnapshot, speciesNote);
 
-      // 1. Guardar primero en local (garantía de no perder datos)
+      // 1. Guardar local primero
       localId = saveObservation(observationData);
 
-      // 2. Construir objeto completo con id para las funciones de sync
+      // 2. Construir objeto completo para el servicio de upload
       const savedObs: LocalObservation = {
         ...observationData,
         id: localId,
@@ -280,38 +283,34 @@ export default function SearchScreen() {
         sync_error: null,
       };
 
-      // 3. Subir a iNaturalist
+      // 3. Subir a iNaturalist (observación + foto)
       const inatId = await uploadToINaturalist(savedObs, INAT_API_TOKEN);
 
-      // 4. Marcar como sincronizado en SQLite
+      // 4. Marcar como sincronizado
       markAsSynced(localId, inatId);
 
       Alert.alert(
         '🌿 Avistamiento subido',
-        `¡Subido exitosamente a iNaturalist!\nID de observación: ${inatId}\nTambién guardado localmente (ID: ${localId}).`,
+        `¡Subido a iNaturalist!\nID remoto: ${inatId}\nGuardado local: ${localId}`,
         [{ text: 'OK', onPress: () => setCaptureSnapshot(null) }]
       );
-
     } catch (error) {
       if (error instanceof INaturalistUploadError) {
-        // Registrar el error de sync en SQLite con el paso donde falló
         const errorMsg = `[${error.step ?? 'desconocido'}] ${error.message}`;
-        if (localId !== null) {
-          markSyncError(localId, errorMsg);
-        }
+        if (localId !== null) markSyncError(localId, errorMsg);
+
         const stepLabel: Record<string, string> = {
           create_observation: 'Crear observación',
           upload_photo: 'Subir foto',
           validation: 'Validación',
         };
-        const stepName = error.step ? stepLabel[error.step] ?? error.step : 'Desconocido';
+        const stepName = error.step ? (stepLabel[error.step] ?? error.step) : 'Desconocido';
+
         Alert.alert(
           `⚠️ Error en: ${stepName}`,
-          `${error.message}${
-            error.detail ? `\n\nDetalle: ${error.detail}` : ''
-          }${
+          `${error.message}${error.detail ? `\n\nDetalle: ${error.detail}` : ''}${
             localId !== null
-              ? `\n\nAvistamiento guardado localmente (ID: ${localId}). Puedes intentar subir de nuevo más tarde.`
+              ? `\n\nDatos guardados localmente (ID: ${localId}). Puedes subir de nuevo más tarde.`
               : ''
           }`
         );
@@ -324,180 +323,220 @@ export default function SearchScreen() {
     }
   };
 
-  // ─── Guards de pantalla ───────────────────────────────────────────────────
+  // ─── Guard: permisos ──────────────────────────────────────────────────────
 
   if (!hasCameraPermission) {
     return (
       <View style={styles.container}>
-        <Text style={styles.text}>Se requieren permisos para continuar:</Text>
-        <Text style={[styles.text, { fontSize: 14, marginBottom: 24 }]}>
-          Cámara: {permission?.granted ? '✅ Concedido' : '❌ Pendiente'}
-        </Text>
-        <TouchableOpacity style={styles.button} onPress={async () => {
-          let camStatus = permission?.granted;
-          if (!camStatus) {
-            camStatus = await requestCameraPermission();
-          }
-
-          if (!camStatus) {
-            Alert.alert(
-              'Permisos insuficientes',
-              'Aún faltan permisos. Si los has denegado anteriormente, ve a la Configuración de tu dispositivo para activarlos manualmente.'
-            );
-          }
-        }}>
+        <Text style={styles.text}>Se requieren permisos de cámara</Text>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={async () => {
+            const res = await requestPermission();
+            if (!res?.granted) {
+              Alert.alert(
+                'Permisos insuficientes',
+                'Ve a Configuración del dispositivo para activar la cámara.'
+              );
+            }
+          }}
+        >
           <Text style={styles.buttonText}>Otorgar Permisos</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  // ─── Renderizado de Resultados ────────────────────────────────────────────
-  const renderResults = () => {
+  // ─── Overlay de resultado (online u offline) ──────────────────────────────
+
+  const renderResult = () => {
     if (!captureSnapshot) return null;
 
-    const { photoPath, result, location } = captureSnapshot;
-    const confidencePercent = (result.especie_principal.confianza * 100).toFixed(1);
+    const { photoPath, location, aiResult, isOnline } = captureSnapshot;
+    const anyLoading = isSaving || isUploading;
 
-    // Parsear la respuesta de Gemma para la tabla
-    const gemmaText = result.gemma_respuesta ?? '';
-    const gemmaLines = gemmaText.split('\n').filter(l => l.trim().length > 0);
-    const gemmaData = gemmaLines.map(l => {
-      const parts = l.split(':');
-      if (parts.length >= 2) {
-        return { label: parts[0].trim(), value: parts.slice(1).join(':').trim() };
-      }
-      return { label: 'Dato IA', value: l.trim() };
-    });
+    // Tabla de metadatos
+    const gpsText = location
+      ? `${location.coords.latitude.toFixed(5)}, ${location.coords.longitude.toFixed(5)}`
+      : 'No disponible';
 
-    const tableData = [
-      { label: 'Modelo Local', value: result.especie_principal.etiqueta },
-      { label: 'Confianza', value: `${confidencePercent}%` },
+    const baseRows = [
+      { label: '📍 GPS', value: gpsText },
       {
-        label: 'GPS',
-        value: location
-          ? `${location.coords.latitude.toFixed(5)}, ${location.coords.longitude.toFixed(5)}`
-          : 'No disponible',
+        label: '🎯 Precisión',
+        value: location?.coords.accuracy ? `±${location.coords.accuracy.toFixed(0)} m` : '—',
       },
-      ...gemmaData,
     ];
 
+    // Filas adicionales solo en modo online
+    const aiRows = aiResult
+      ? [
+          { label: '🤖 Especie (IA)', value: aiResult.especie_principal.etiqueta },
+          {
+            label: '📊 Confianza',
+            value: `${(aiResult.especie_principal.confianza * 100).toFixed(1)}%`,
+          },
+          ...(aiResult.gemma_respuesta
+            ? aiResult.gemma_respuesta
+                .split('\n')
+                .filter((l) => l.trim().length > 0)
+                .map((l) => {
+                  const parts = l.split(':');
+                  return parts.length >= 2
+                    ? { label: parts[0].trim(), value: parts.slice(1).join(':').trim() }
+                    : { label: 'IA', value: l.trim() };
+                })
+            : []),
+        ]
+      : [];
+
+    const tableRows = [...baseRows, ...aiRows];
+
+    // Nombre para "Ver más info" en iNaturalist (solo online)
     const handleMoreInfo = () => {
+      if (!aiResult) return;
       let nameToSearch = '';
-
-      if (result.especie_principal.confianza > 0.70) {
-        const parts = result.especie_principal.etiqueta.split(',');
+      if (aiResult.especie_principal.confianza > 0.7) {
+        const parts = aiResult.especie_principal.etiqueta.split(',');
         nameToSearch = parts[parts.length - 1].trim();
-      } else {
-        const match = gemmaText.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
-        if (match && match[1]) {
-          nameToSearch = match[1].trim();
-        } else {
-          nameToSearch = gemmaText.replace(/Nombre cient[íi]fico:/i, '').trim();
-        }
+      } else if (aiResult.gemma_respuesta) {
+        const match = aiResult.gemma_respuesta.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
+        nameToSearch = match?.[1]?.trim() ?? aiResult.especie_principal.etiqueta;
       }
-
-      if (!nameToSearch) {
-        Alert.alert('Aviso', 'No se detectó un nombre válido para buscar información.');
-        return;
+      if (nameToSearch) {
+        router.push({ pathname: '/information', params: { scientificName: nameToSearch } });
       }
-
-      router.push({
-        pathname: '/information',
-        params: { scientificName: nameToSearch },
-      });
     };
 
-    const anyActionLoading = isSaving || isUploading;
-
     return (
-      <View style={styles.resultOverlay}>
-        <View style={styles.resultCard}>
-          <Image
-            source={{ uri: photoPath.startsWith('file://') ? photoPath : `file://${photoPath}` }}
-            style={styles.resultImage}
-            resizeMode="cover"
-          />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.resultOverlay}
+      >
+        <ScrollView
+          contentContainerStyle={styles.resultScrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.resultCard}>
+            {/* Foto */}
+            <Image
+              source={{ uri: photoPath.startsWith('file://') ? photoPath : `file://${photoPath}` }}
+              style={styles.resultImage}
+              resizeMode="cover"
+            />
 
-          <Text style={styles.reviewWarningText}>
-            ⚠️ Requiere revisión de un experto
-          </Text>
+            {/* Badge de modo */}
+            <View style={styles.modeBadge}>
+              <Ionicons
+                name={isOnline ? 'cloud-done-outline' : 'cloud-offline-outline'}
+                size={14}
+                color={isOnline ? '#4F6F52' : '#D4883A'}
+              />
+              <Text style={[styles.modeBadgeText, { color: isOnline ? '#4F6F52' : '#D4883A' }]}>
+                {isOnline ? 'Identificación IA disponible' : 'Modo offline · Pendiente de sincronización'}
+              </Text>
+            </View>
 
-          <View style={styles.tableContainer}>
-            <ScrollView showsVerticalScrollIndicator={false}>
-              {tableData.map((item, index) => (
-                <View key={index} style={[styles.tableRow, index % 2 === 0 ? styles.tableRowEven : styles.tableRowOdd]}>
+            {/* Tabla de metadatos */}
+            <View style={styles.tableContainer}>
+              {tableRows.map((item, index) => (
+                <View
+                  key={index}
+                  style={[styles.tableRow, index % 2 === 0 ? styles.tableRowEven : styles.tableRowOdd]}
+                >
                   <Text style={styles.tableLabel}>{item.label}</Text>
                   <Text style={styles.tableValue}>{item.value}</Text>
                 </View>
               ))}
-            </ScrollView>
-          </View>
+            </View>
 
-          {/* ── Fila 1: Ver más ── */}
-          <View style={styles.actionButtonsRow}>
-            <TouchableOpacity
-              style={styles.actionButtonFull}
-              onPress={handleMoreInfo}
-            >
-              <Ionicons name="information-circle-outline" size={16} color="#fff" style={styles.btnIcon} />
-              <Text style={styles.actionButtonText}>Ver más</Text>
-            </TouchableOpacity>
-          </View>
+            {/* Nota manual (siempre disponible, útil en offline) */}
+            <View style={styles.noteContainer}>
+              <Text style={styles.noteLabel}>
+                {isOnline ? '✏️ Nota adicional' : '🔍 ¿Qué observaste?'}{' '}
+                <Text style={styles.noteOptional}>(opcional)</Text>
+              </Text>
+              <TextInput
+                style={styles.noteInput}
+                value={speciesNote}
+                onChangeText={setSpeciesNote}
+                placeholder={
+                  isOnline
+                    ? 'Comportamiento, contexto...'
+                    : 'Ej. Tucán, Quetzal, Colibrí...'
+                }
+                placeholderTextColor="#9DB99E"
+                maxLength={120}
+                returnKeyType="done"
+                accessibilityLabel="Nota del avistamiento"
+              />
+            </View>
 
-          {/* ── Fila 2: Guardar | Subir avistamiento ── */}
-          <View style={styles.actionButtonsRow}>
-            {/* Botón Guardar → solo SQLite local */}
-            <TouchableOpacity
-              style={[
-                styles.actionButton,
-                styles.saveButton,
-                anyActionLoading && styles.buttonDisabled,
-              ]}
-              onPress={handleSaveObservation}
-              disabled={anyActionLoading}
-              accessibilityLabel="Guardar avistamiento localmente"
-            >
-              {isSaving ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="save-outline" size={16} color="#fff" style={styles.btnIcon} />
-                  <Text style={styles.actionButtonText}>Guardar</Text>
-                </>
+            {/* Botones fila 1: Ver más (solo online) */}
+            {isOnline && (
+              <View style={styles.actionButtonsRow}>
+                <TouchableOpacity
+                  style={styles.actionButtonFull}
+                  onPress={handleMoreInfo}
+                  accessibilityLabel="Ver más información de la especie"
+                >
+                  <Ionicons name="information-circle-outline" size={16} color="#fff" style={styles.btnIcon} />
+                  <Text style={styles.actionButtonText}>Ver más info</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Botones fila 2: Guardar | Subir */}
+            <View style={styles.actionButtonsRow}>
+              {/* Guardar → solo SQLite */}
+              <TouchableOpacity
+                style={[styles.actionButton, styles.saveButton, anyLoading && styles.buttonDisabled]}
+                onPress={handleSaveObservation}
+                disabled={anyLoading}
+                accessibilityLabel="Guardar avistamiento localmente"
+              >
+                {isSaving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="save-outline" size={16} color="#fff" style={styles.btnIcon} />
+                    <Text style={styles.actionButtonText}>Guardar</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              {/* Subir a iNaturalist → solo en modo online */}
+              {isOnline && (
+                <TouchableOpacity
+                  style={[styles.actionButton, styles.uploadButton, anyLoading && styles.buttonDisabled]}
+                  onPress={handleUploadObservation}
+                  disabled={anyLoading}
+                  accessibilityLabel="Guardar y subir a iNaturalist"
+                >
+                  {isUploading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="cloud-upload-outline" size={16} color="#fff" style={styles.btnIcon} />
+                      <Text style={styles.actionButtonText}>Subir</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
               )}
-            </TouchableOpacity>
-
-            {/* Botón Subir avistamiento → SQLite + iNaturalist */}
-            <TouchableOpacity
-              style={[
-                styles.actionButton,
-                styles.uploadButton,
-                anyActionLoading && styles.buttonDisabled,
-              ]}
-              onPress={handleUploadObservation}
-              disabled={anyActionLoading}
-              accessibilityLabel="Guardar y subir avistamiento a iNaturalist"
-            >
-              {isUploading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="cloud-upload-outline" size={16} color="#fff" style={styles.btnIcon} />
-                  <Text style={styles.actionButtonText}>Subir avistamiento</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            </View>
           </View>
-        </View>
+        </ScrollView>
 
+        {/* Botón cerrar */}
         <TouchableOpacity
           style={styles.closeResultButton}
           onPress={() => setCaptureSnapshot(null)}
+          accessibilityLabel="Cerrar resultado"
         >
           <Ionicons name="close" size={28} color="#fff" />
         </TouchableOpacity>
-      </View>
+      </KeyboardAvoidingView>
     );
   };
 
@@ -507,43 +546,29 @@ export default function SearchScreen() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
         <GestureDetector gesture={tapGesture}>
-          <CameraView
-            ref={camera}
-            style={StyleSheet.absoluteFill}
-            facing="back"
-            autofocus="on"
-          />
+          <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" autofocus="on" />
         </GestureDetector>
 
-        {/* ── Barra superior: Probar API ── */}
+        {/* ── Indicador de estado ── */}
         <View style={styles.topBar}>
-          <TouchableOpacity
-            style={[styles.apiTestButton, isTestingApi && styles.buttonDisabled]}
-            onPress={testBackendHealth}
-            disabled={isTestingApi}
-            accessibilityLabel="Probar conexión al backend"
-          >
-            <Text style={styles.apiTestButtonText}>
-              {isTestingApi ? 'Comprobando…' : 'Probar API'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.statusIndicator}>
+            <Ionicons name="leaf-outline" size={14} color="#90C97B" />
+            <Text style={styles.statusText}>BioLife · Identificación automática</Text>
+          </View>
         </View>
 
-        {/* ── Overlay: Toca para enfocar ── */}
+        {/* ── Hint de enfoque ── */}
         <View style={styles.overlayTextContainer}>
           <Text style={styles.overlayText}>Toca para enfocar</Text>
         </View>
 
-        {/* ── Barra de botones de captura ── */}
+        {/* ── Botón de captura ── */}
         <View style={styles.captureContainer}>
           <TouchableOpacity
-            style={[
-              styles.captureButton,
-              isTakingPhoto && styles.captureButtonDisabled,
-            ]}
+            style={[styles.captureButton, isTakingPhoto && styles.captureButtonDisabled]}
             onPress={takePhoto}
             disabled={isTakingPhoto}
-            accessibilityLabel="Tomar foto e identificar animal"
+            accessibilityLabel="Tomar foto del avistamiento"
           >
             {isTakingPhoto ? (
               <ActivityIndicator size="small" color="#ffffff" />
@@ -553,8 +578,8 @@ export default function SearchScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ── Overlay de Resultados ── */}
-        {renderResults()}
+        {/* ── Overlay de resultado ── */}
+        {renderResult()}
       </View>
     </GestureHandlerRootView>
   );
@@ -563,214 +588,76 @@ export default function SearchScreen() {
 // ─── Estilos ──────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  text: {
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 16,
-    textAlign: 'center',
-    paddingHorizontal: 20,
-  },
-  button: {
-    backgroundColor: '#1E90FF',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 8,
-  },
-  buttonText: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 16,
-  },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
+  container: { flex: 1, backgroundColor: '#000', alignItems: 'center', justifyContent: 'center' },
+  text: { color: '#fff', fontSize: 16, marginBottom: 16, textAlign: 'center', paddingHorizontal: 20 },
+  button: { backgroundColor: '#1E90FF', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8 },
+  buttonText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  buttonDisabled: { opacity: 0.5 },
 
-  // ── Top Bar ──
-  topBar: {
-    position: 'absolute',
-    top: 48,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 2,
+  topBar: { position: 'absolute', top: 48, left: 0, right: 0, alignItems: 'center', zIndex: 2 },
+  statusIndicator: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.55)', paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 20, borderWidth: 1, borderColor: 'rgba(144,201,123,0.4)',
   },
-  apiTestButton: {
-    backgroundColor: 'rgba(30, 144, 255, 0.9)',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  apiTestButtonText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '600',
-  },
+  statusText: { color: '#90C97B', fontSize: 13, fontWeight: '600' },
 
-  // ── Overlay hint ──
   overlayTextContainer: {
-    position: 'absolute',
-    top: 110,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    position: 'absolute', top: 110,
+    backgroundColor: 'rgba(0,0,0,0.5)', paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20,
   },
-  overlayText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
-  },
+  overlayText: { color: '#fff', fontSize: 14, fontWeight: '500' },
 
-  // ── Capture bar (cámara) ──
   captureContainer: {
-    position: 'absolute',
-    bottom: 50,
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 36,
+    position: 'absolute', bottom: 50, width: '100%',
+    alignItems: 'center', justifyContent: 'center',
   },
-
-  // ── Botón de cámara (shutter) ──
   captureButton: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: 'transparent',
-    borderWidth: 4,
-    borderColor: '#ffffff',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 70, height: 70, borderRadius: 35,
+    backgroundColor: 'transparent', borderWidth: 4, borderColor: '#ffffff',
+    justifyContent: 'center', alignItems: 'center',
   },
-  captureButtonDisabled: {
-    borderColor: '#aaaaaa',
-    opacity: 0.6,
-  },
-  captureButtonInner: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
-    backgroundColor: '#ffffff',
+  captureButtonDisabled: { borderColor: '#aaaaaa', opacity: 0.6 },
+  captureButtonInner: { width: 54, height: 54, borderRadius: 27, backgroundColor: '#ffffff' },
+
+  // ── Overlay resultado ──
+  resultOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.88)', zIndex: 10 },
+  resultScrollContent: { flexGrow: 1, justifyContent: 'center', padding: 20, paddingTop: 70, paddingBottom: 30 },
+  resultCard: { width: '100%', backgroundColor: '#EAF2E3', borderRadius: 32, overflow: 'hidden' },
+  resultImage: { width: '100%', height: 220 },
+
+  modeBadge: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 14, marginBottom: 4 },
+  modeBadgeText: { fontSize: 13, fontWeight: '600' },
+
+  tableContainer: { paddingHorizontal: 20, paddingVertical: 8, maxHeight: 200 },
+  tableRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 9, paddingHorizontal: 12, borderRadius: 12, marginBottom: 4 },
+  tableRowEven: { backgroundColor: 'transparent' },
+  tableRowOdd: { backgroundColor: 'rgba(255,255,255,0.5)' },
+  tableLabel: { fontSize: 13, fontWeight: '600', color: '#3A4D39' },
+  tableValue: { fontSize: 13, color: '#4F6F52', fontWeight: '400', flex: 1, textAlign: 'right' },
+
+  noteContainer: { paddingHorizontal: 20, paddingBottom: 10 },
+  noteLabel: { fontSize: 13, fontWeight: '600', color: '#3A4D39', marginBottom: 8 },
+  noteOptional: { fontWeight: '400', color: '#7A9B7A' },
+  noteInput: {
+    backgroundColor: '#fff', borderRadius: 14, paddingHorizontal: 16, paddingVertical: 12,
+    fontSize: 14, color: '#2C3E2D', borderWidth: 1, borderColor: '#C8DBC9',
   },
 
-  // ── Result Overlay ──
-  resultOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.85)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-    zIndex: 10,
-  },
-  resultCard: {
-    width: '100%',
-    backgroundColor: '#EAF2E3',
-    borderRadius: 32,
-    overflow: 'hidden',
-    maxHeight: '90%',
-  },
-  resultImage: {
-    width: '100%',
-    height: 260,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-  },
-  tableContainer: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    maxHeight: 180,
-  },
-  tableRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    marginBottom: 4,
-  },
-  tableRowEven: {
-    backgroundColor: 'transparent',
-  },
-  tableRowOdd: {
-    backgroundColor: 'rgba(255,255,255,0.5)',
-  },
-  tableLabel: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#3A4D39',
-  },
-  tableValue: {
-    fontSize: 13,
-    color: '#4F6F52',
-    fontWeight: '400',
-    flex: 1,
-    textAlign: 'right',
-  },
-  reviewWarningText: {
-    color: '#D4883A',
-    textAlign: 'center',
-    fontWeight: 'bold',
-    marginTop: 14,
-    fontSize: 14,
-  },
-
-  // ── Action Buttons ──
-  actionButtonsRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginBottom: 12,
-    gap: 10,
-  },
-  /** Botón que ocupa todo el ancho de la fila (Ver más) */
+  actionButtonsRow: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
   actionButtonFull: {
-    flex: 1,
-    backgroundColor: '#4F6F52',
-    paddingVertical: 13,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
+    flex: 1, backgroundColor: '#4F6F52', paddingVertical: 13, borderRadius: 24,
+    alignItems: 'center', justifyContent: 'center', flexDirection: 'row',
   },
-  /** Botón que comparte fila con otro (Guardar / Subir) */
-  actionButton: {
-    flex: 1,
-    paddingVertical: 13,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-  },
-  saveButton: {
-    backgroundColor: '#5B8C5A',
-  },
-  uploadButton: {
-    backgroundColor: '#3A4D39',
-  },
-  actionButtonText: {
-    color: '#ffffff',
-    fontSize: 13,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  btnIcon: {
-    marginRight: 5,
-  },
+  actionButton: { flex: 1, paddingVertical: 13, borderRadius: 24, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
+  saveButton: { backgroundColor: '#5B8C5A' },
+  uploadButton: { backgroundColor: '#3A4D39' },
+  actionButtonText: { color: '#ffffff', fontSize: 13, fontWeight: 'bold', textAlign: 'center' },
+  btnIcon: { marginRight: 5 },
+
   closeResultButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    position: 'absolute', top: 50, right: 20,
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center',
   },
 });
