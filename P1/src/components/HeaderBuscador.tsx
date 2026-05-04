@@ -25,23 +25,17 @@ import { useRouter } from 'expo-router';
 // Paleta de colores (verde BioLife)
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { COLORS } from '../utils/inaturalist';
+
 const GREEN = {
-  /** Fondo del header */
-  surface: '#E8F5E9',
-  /** Color principal de iconos y texto */
-  dark: '#1B5E20',
-  /** Borde sutil inferior del header */
-  border: '#C8E6C9',
-  /** Fondo del input de búsqueda */
-  inputBg: '#FFFFFF',
-  /** Borde del input */
-  inputBorder: '#A5D6A7',
-  /** Fondo del botón de micrófono */
-  micBg: '#2E7D32',
-  /** Color del micrófono activo (grabando) */
-  micActive: '#E53935',
-  /** Placeholder del TextInput */
-  placeholder: '#81C784',
+  surface: COLORS.background,
+  dark: COLORS.accent,
+  border: COLORS.border,
+  inputBg: COLORS.surface,
+  inputBorder: COLORS.primary,
+  micBg: COLORS.accent,
+  micActive: COLORS.danger,
+  placeholder: COLORS.textMuted,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

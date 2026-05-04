@@ -109,7 +109,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: 0,
     right: 0,
-    backgroundColor: '#2b5e34', // Verde oscuro según la imagen
+    backgroundColor: COLORS.accent,
     borderTopLeftRadius: 20,
     padding: 10,
     justifyContent: 'center',

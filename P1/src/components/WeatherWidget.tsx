@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, Modal, ScrollView, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { fetchCurrentWeather, WeatherData, mapWeatherIcon } from '../utils/weather';
+import { COLORS } from '../utils/inaturalist';
 
 export default function WeatherWidget() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
@@ -57,7 +58,7 @@ export default function WeatherWidget() {
           <Ionicons
             name={mapWeatherIcon(weather.icon)}
             size={44}
-            color={'#D4A017'}
+            color={COLORS.warning}
           />
           <Text style={styles.descriptionText}>{weather.description}</Text>
         </View>
@@ -76,7 +77,7 @@ export default function WeatherWidget() {
           <Pressable style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={() => toggleModal(false)}>
-                <Ionicons name="close" size={28} color="#1E4620" />
+                <Ionicons name="close" size={28} color={COLORS.textPrimary} />
               </TouchableOpacity>
               <Text style={styles.modalTitle}>Detalles del Clima</Text>
               <View style={{ width: 28 }} />
@@ -97,7 +98,7 @@ export default function WeatherWidget() {
                   <Ionicons
                     name={mapWeatherIcon(weather.icon)}
                     size={120}
-                    color="#D4A017"
+                    color={COLORS.warning}
                   />
                   <Text style={styles.weatherDescriptionModal}>{weather.description}</Text>
                 </View>
@@ -106,11 +107,11 @@ export default function WeatherWidget() {
                   <Text style={styles.mainTempModal}>{weather.temp} °C</Text>
                   <View style={styles.minMaxContainerModal}>
                     <View style={styles.minMaxRowModal}>
-                      <Ionicons name="arrow-up" size={18} color="#D4A017" />
+                      <Ionicons name="arrow-up" size={18} color={COLORS.warning} />
                       <Text style={styles.minMaxTextModal}>{weather.tempMax} °C</Text>
                     </View>
                     <View style={styles.minMaxRowModal}>
-                      <Ionicons name="arrow-down" size={18} color="#D4A017" />
+                      <Ionicons name="arrow-down" size={18} color={COLORS.warning} />
                       <Text style={styles.minMaxTextModal}>{weather.tempMin} °C</Text>
                     </View>
                   </View>
@@ -139,16 +140,16 @@ const styles = StyleSheet.create({
     paddingVertical: 18,
     borderRadius: 35,
     borderWidth: 1.5,
-    backgroundColor: '#E6F4EA',
-    borderColor: '#1E4620',
+    backgroundColor: COLORS.background,
+    borderColor: COLORS.accent,
   },
   loadingContainer: {
-    backgroundColor: '#1A1A1A',
-    borderColor: '#333',
+    backgroundColor: COLORS.surface,
+    borderColor: COLORS.border,
     justifyContent: 'center',
   },
   loadingText: {
-    color: '#888',
+    color: COLORS.textMuted,
     fontSize: 14,
   },
   leftContent: {
@@ -164,17 +165,17 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: 'bold',
     letterSpacing: -0.5,
-    color: '#1E4620',
+    color: COLORS.textPrimary,
   },
   tempText: {
     fontSize: 24,
     fontWeight: '500',
     marginTop: 4,
-    color: '#1E4620',
+    color: COLORS.textPrimary,
   },
   descriptionText: {
     fontSize: 12,
-    color: '#1E4620',
+    color: COLORS.textPrimary,
     marginTop: 4,
     textTransform: 'capitalize',
     textAlign: 'center',
@@ -191,7 +192,7 @@ const styles = StyleSheet.create({
   modalContent: {
     width: '100%',
     maxHeight: '80%',
-    backgroundColor: '#E6E4B4',
+    backgroundColor: COLORS.surface,
     borderRadius: 30,
     padding: 20,
     elevation: 10,
@@ -209,7 +210,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#1E4620',
+    color: COLORS.textPrimary,
   },
   modalBody: {
     paddingHorizontal: 10,
@@ -217,11 +218,11 @@ const styles = StyleSheet.create({
   cityNameModal: {
     fontSize: 28,
     fontWeight: 'bold',
-    color: '#000',
+    color: COLORS.textPrimary,
   },
   regionNameModal: {
     fontSize: 18,
-    color: '#000',
+    color: COLORS.textPrimary,
     marginTop: 2,
   },
   detailsListModal: {
@@ -230,7 +231,7 @@ const styles = StyleSheet.create({
   },
   detailItemModal: {
     fontSize: 14,
-    color: '#000',
+    color: COLORS.textPrimary,
   },
   iconContainerModal: {
     alignItems: 'center',
@@ -238,7 +239,7 @@ const styles = StyleSheet.create({
   },
   weatherDescriptionModal: {
     fontSize: 20,
-    color: '#000',
+    color: COLORS.textPrimary,
     marginTop: 10,
     textTransform: 'capitalize',
     fontWeight: '600',
@@ -253,7 +254,7 @@ const styles = StyleSheet.create({
   mainTempModal: {
     fontSize: 50,
     fontWeight: 'bold',
-    color: '#D4A017',
+    color: COLORS.warning,
   },
   minMaxContainerModal: {
     gap: 6,
@@ -266,12 +267,12 @@ const styles = StyleSheet.create({
   },
   minMaxTextModal: {
     fontSize: 16,
-    color: '#D4A017',
+    color: COLORS.warning,
     fontWeight: '600',
   },
   updateTimeText: {
     fontSize: 10,
-    color: 'rgba(0,0,0,0.4)',
+    color: COLORS.textSecondary,
     textAlign: 'center',
     marginTop: 20,
     fontStyle: 'italic',
