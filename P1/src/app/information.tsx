@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { WebView } from 'react-native-webview';
 
 import {
   COLORS,
@@ -231,6 +232,44 @@ export default function SpeciesDetailScreen() {
     fetchSpeciesDetail();
   }, [startShimmer, fetchSpeciesDetail]);
 
+  // Generar HTML para el minimapa
+  const miniMapHtml = useMemo(() => {
+    if (!species) return '';
+    const pointsUrl = `https://api.inaturalist.org/v1/points/{z}/{x}/{y}.png?taxon_id=${species.id}`;
+
+    return `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+          body { margin: 0; padding: 0; }
+          #map { height: 100vh; width: 100vw; background: #e0e0e0; }
+          .leaflet-control-attribution { display: none !important; }
+        </style>
+      </head>
+      <body>
+        <div id="map"></div>
+        <script>
+          var map = L.map('map', {
+            zoomControl: false,
+            attributionControl: false,
+            dragging: false,
+            touchZoom: false,
+            scrollWheelZoom: false,
+            doubleClickZoom: false
+          }).setView([7.5, -62.5], 6);
+
+          L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+          L.tileLayer('${pointsUrl}', { zIndex: 1000 }).addTo(map);
+        </script>
+      </body>
+      </html>
+    `;
+  }, [species]);
+
   // ── Render: Cargando ──
   if (isLoading) {
     return (
@@ -385,6 +424,42 @@ export default function SpeciesDetailScreen() {
           {species.rank && (
             <DetailRow label="Rango taxonómico:" value={species.rank} />
           )}
+        </View>
+
+        {/* Mini Mapa de Avistamientos */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Mapa de Presencia</Text>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            style={styles.miniMapContainer}
+            onPress={() => {
+              router.push({
+                pathname: '/regions',
+                params: {
+                  taxonId: species.id.toString(),
+                  taxonName: species.commonName,
+                  taxonIcon: species.kingdom // Usamos el reino para intentar inferir el icono
+                }
+              });
+            }}
+          >
+            <WebView
+              originWhitelist={['*']}
+              source={{ html: miniMapHtml }}
+              style={styles.miniMap}
+              pointerEvents="none"
+              scrollEnabled={false}
+            />
+            <View style={styles.miniMapOverlay}>
+              <View style={styles.miniMapButton}>
+                <Ionicons name="expand-outline" size={16} color="#fff" />
+                <Text style={styles.miniMapButtonText}>Ver pantalla completa</Text>
+              </View>
+            </View>
+          </TouchableOpacity>
+          <Text style={styles.miniMapHint}>
+            Toque el mapa para ver la distribución detallada en Guayana.
+          </Text>
         </View>
       </ScrollView>
     </View>
@@ -580,5 +655,43 @@ const styles = StyleSheet.create({
   skeletonBar: {
     backgroundColor: COLORS.skeletonHighlight,
     alignSelf: 'center',
+  },
+  miniMapContainer: {
+    height: 180,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#eee',
+    position: 'relative',
+    marginTop: 8,
+  },
+  miniMap: {
+    flex: 1,
+  },
+  miniMapOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  miniMapButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
+  },
+  miniMapButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  miniMapHint: {
+    fontSize: 11,
+    color: COLORS.textMuted,
+    textAlign: 'center',
+    marginTop: 10,
+    fontStyle: 'italic',
   },
 });
