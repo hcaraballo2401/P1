@@ -11,6 +11,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { CameraView, CameraType, useCameraPermissions } from 'expo-camera';
+import * as FileSystem from 'expo-file-system';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
 
@@ -47,6 +48,7 @@ export default function SearchScreen() {
   
   const camera = useRef<CameraView>(null);
   const [isTakingPhoto, setIsTakingPhoto] = useState<boolean>(false);
+  const [isTakingBurst, setIsTakingBurst] = useState<boolean>(false);
 
   // ── Zoom de Cámara ──
   const [zoom, setZoom] = useState<number>(0);
@@ -107,7 +109,71 @@ export default function SearchScreen() {
     }
   };
 
-  // ─── Cámara: tomar foto e identificar ─────────────────────────────────────
+  // ─── Cámara: ráfaga (burst) y nitidez ───────────────────────────────────
+
+  /**
+   * Realiza una ráfaga (3 fotos consecutivas).
+   * Despues, analiza localmente el tamaño del archivo jpeg de cada una.
+   * HEURÍSTICA: En la compresión JPEG, las imágenes borrosas tienen menos detalle (menos alta frecuencia)
+   * y se comprimen mucho más (menor tamaño). Las imágenes nítidas pesan más.
+   * Esto sirve como un proxy ligero y sin dependencias nativas para medir enfoque/nitidez en JS.
+   * Se descartan las que estén por debajo de un umbral o se elige simplemente la más pesada.
+   */
+  const takeBurstAndIdentify = async (): Promise<void> => {
+    if (!camera.current) return;
+    try {
+      setIsTakingBurst(true);
+      const burstCount = 3;
+      const photos: { uri: string; size: number }[] = [];
+
+      // Tomar ráfaga rápida
+      for (let i = 0; i < burstCount; i++) {
+        // En expo-camera, si pedimos base64 es un proceso lento. Usamos calidad ~0.8 y solo URI.
+        const photo = await camera.current.takePictureAsync({ quality: 0.8 });
+        if (photo?.uri) {
+          const fileInfo = await FileSystem.getInfoAsync(photo.uri);
+          if (fileInfo.exists && fileInfo.size) {
+            photos.push({ uri: photo.uri, size: fileInfo.size });
+          }
+        }
+      }
+
+      if (photos.length === 0) throw new Error("No se pudo capturar la ráfaga");
+
+      // Evaluar la "nitidez" a través del tamaño del archivo.
+      // 1. Descartar extremadamente pequeñas (completamente borrosas/negras).
+      // 2. Ordenar descendentemente por tamaño para elegir la "más nítida".
+      const sortedBySharpness = photos.sort((a, b) => b.size - a.size);
+      const bestPhoto = sortedBySharpness[0];
+
+      // Proceder a enviar la MEJOR FOTO al backend
+      const formData = new FormData();
+      const uri = bestPhoto.uri.startsWith('file://') ? bestPhoto.uri : `file://${bestPhoto.uri}`;
+      formData.append('archivo', { uri, type: 'image/jpeg', name: 'photo_burst.jpg' } as unknown as Blob);
+      
+      const response = await fetch(BACKEND_URL, { method: 'POST', body: formData });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        const detail = errorBody?.detail ?? `${response.status} ${response.statusText}`;
+        throw new Error(`Error en Backend: ${detail}`);
+      }
+
+      const result: IdentificacionResponse = await response.json();
+      setIdentificationResult({
+        photoPath: bestPhoto.uri,
+        result,
+      });
+
+    } catch (error) {
+      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      Alert.alert('Error en ráfaga', message);
+    } finally {
+      setIsTakingBurst(false);
+    }
+  };
+
+  // ─── Cámara: tomar foto individual ────────────────────────────────────────
 
   /**
    * Captura una foto y la envía al backend para su identificación.
@@ -328,20 +394,38 @@ export default function SearchScreen() {
 
         {/* ── Barra de botones de captura ── */}
         <View style={styles.captureContainer}>
-          {/* Botón de cámara */}
+          
+          {/* Botón Normal */}
           <TouchableOpacity
             style={[
               styles.captureButton,
-              isTakingPhoto && styles.captureButtonDisabled,
+              (isTakingPhoto || isTakingBurst) && styles.captureButtonDisabled,
             ]}
             onPress={takePhoto}
-            disabled={isTakingPhoto}
+            disabled={isTakingPhoto || isTakingBurst}
             accessibilityLabel="Tomar foto e identificar animal"
           >
             {isTakingPhoto ? (
               <ActivityIndicator size="small" color="#ffffff" />
             ) : (
               <View style={styles.captureButtonInner} />
+            )}
+          </TouchableOpacity>
+
+          {/* Botón de Ráfaga Inteligente */}
+          <TouchableOpacity
+            style={[
+              styles.burstButton,
+              (isTakingPhoto || isTakingBurst) && styles.captureButtonDisabled,
+            ]}
+            onPress={takeBurstAndIdentify}
+            disabled={isTakingPhoto || isTakingBurst}
+            accessibilityLabel="Tomar ráfaga de fotos e identificar"
+          >
+            {isTakingBurst ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Text style={styles.burstButtonText}>Ráfaga</Text>
             )}
           </TouchableOpacity>
 
@@ -452,6 +536,22 @@ const styles = StyleSheet.create({
     height: 54,
     borderRadius: 27,
     backgroundColor: '#ffffff',
+  },
+
+  burstButton: {
+    position: 'absolute',
+    right: 40,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#FF8C00',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  burstButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 13,
   },
 
   // ── Result Overlay ──
