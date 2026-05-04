@@ -13,7 +13,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Location from 'expo-location';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useEffect, useRef, useState } from 'react';
@@ -74,6 +76,15 @@ export default function SearchScreen() {
   const hasCameraPermission = permission?.granted;
   const camera = useRef<CameraView>(null);
   const [isTakingPhoto, setIsTakingPhoto] = useState<boolean>(false);
+  const [isTakingBurst, setIsTakingBurst] = useState<boolean>(false);
+
+  // ── Ráfaga Manual ──
+  const [burstPhotos, setBurstPhotos] = useState<{ uri: string; size: number }[]>([]);
+  const [viewingBurstPhoto, setViewingBurstPhoto] = useState<string | null>(null);
+
+  // ── Zoom de Cámara ──
+  const [zoom, setZoom] = useState<number>(0);
+  const startZoom = useRef<number>(0);
 
   // ── GPS ──
   const [locationPermission, setLocationPermission] = useState<boolean>(false);
@@ -98,9 +109,19 @@ export default function SearchScreen() {
     })();
   }, []);
 
-  // ─── Tap gesture (autofocus nativo) ──────────────────────────────────────
-
+  // ─── Cámara: foco por tap y zoom ──────────────────────────────────────────
   const tapGesture = Gesture.Tap().onEnd((_event) => {});
+
+  const pinchGesture = Gesture.Pinch()
+    .onStart(() => {
+      startZoom.current = zoom;
+    })
+    .onUpdate((event) => {
+      let newZoom = startZoom.current + (event.scale - 1) * 0.05; // Ajuste suave
+      setZoom(Math.min(Math.max(newZoom, 0), 1));
+    });
+
+  const cameraGestures = Gesture.Simultaneous(tapGesture, pinchGesture);
 
   // ─── Captura: foto + GPS + IA (si hay red) ───────────────────────────────
 
@@ -138,6 +159,83 @@ export default function SearchScreen() {
     }
   };
 
+  // ─── Cámara: ráfaga (burst) y nitidez ───────────────────────────────────
+
+  /**
+   * Captura una foto individual rápida y la añade a la cola de la ráfaga.
+   */
+  const addPhotoToBurst = async (): Promise<void> => {
+    if (!camera.current) return;
+    try {
+      setIsTakingBurst(true);
+      const photo = await camera.current.takePictureAsync({ quality: 0.8 });
+      if (photo?.uri) {
+        const fileInfo = await FileSystem.getInfoAsync(photo.uri);
+        if (fileInfo.exists && fileInfo.size) {
+          setBurstPhotos((prev) => [...prev, { uri: photo.uri, size: fileInfo.size }]);
+        }
+      }
+    } catch (error) {
+      console.log("Error al capturar ráfaga:", error);
+    } finally {
+      setIsTakingBurst(false);
+    }
+  };
+
+  /**
+   * Procesa todas las fotos recolectadas en la ráfaga, elige la de mejor calidad, y la analiza.
+   */
+  const processBurstSequence = async (): Promise<void> => {
+    if (burstPhotos.length === 0) return;
+    try {
+      setIsTakingBurst(true);
+
+      // Evaluar la "nitidez" a través del tamaño del archivo.
+      const sortedBySharpness = [...burstPhotos].sort((a, b) => b.size - a.size);
+      const bestPhoto = sortedBySharpness[0];
+
+      // Proceder a enviar la MEJOR FOTO al backend
+      const formData = new FormData();
+      const uri = bestPhoto.uri.startsWith('file://') ? bestPhoto.uri : `file://${bestPhoto.uri}`;
+      formData.append('archivo', { uri, type: 'image/jpeg', name: 'photo_burst.jpg' } as unknown as Blob);
+      
+      const response = await fetch(BACKEND_URL, { method: 'POST', body: formData });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        const detail = errorBody?.detail ?? `${response.status} ${response.statusText}`;
+        throw new Error(`Error en Backend: ${detail}`);
+      }
+
+      const result: IdentificacionResponse = await response.json();
+      setCaptureSnapshot({
+        photoPath: bestPhoto.uri,
+        location: null,
+        capturedAt: new Date().toISOString(),
+        aiResult: result,
+        isOnline: true,
+      });
+
+      // Limpiamos la cola de la ráfaga
+      setBurstPhotos([]);
+
+    } catch (error) {
+      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      Alert.alert('Error en análisis de ráfaga', message);
+    } finally {
+      setIsTakingBurst(false);
+    }
+  };
+
+  /**
+   * Elimina una foto específica de la ráfaga.
+   */
+  const removeBurstPhoto = (uriToRemove: string) => {
+    setBurstPhotos((prev) => prev.filter((p) => p.uri !== uriToRemove));
+    setViewingBurstPhoto(null);
+  };
+
+  // ─── Cámara: tomar foto individual ────────────────────────────────────────
   /**
    * Captura foto + GPS en paralelo, luego intenta identificación por IA.
    * Si la IA no responde dentro del timeout, continúa en modo offline.
@@ -394,6 +492,34 @@ export default function SearchScreen() {
 
     // Nombre para "Ver más info" en iNaturalist (solo online)
     const handleMoreInfo = () => {
+      const extractScientificName = (text: string) => {
+        const regex = /\b[A-Z][a-z]+(?: [a-z]+){1,2}\b/g;
+        const matches = text.match(regex);
+        return matches?.[matches.length - 1]?.trim() ?? '';
+      };
+
+      const tryParseFromLabel = (label: string) => {
+        const candidates = label.split(',').map((part) => part.trim()).filter(Boolean);
+        for (let i = candidates.length - 1; i >= 0; i -= 1) {
+          const candidate = candidates[i];
+          if (/^[A-Z][a-z]+(?: [a-z]+){1,2}$/.test(candidate)) {
+            return candidate;
+          }
+        }
+        return extractScientificName(label);
+      };
+
+      // let nameToSearch = '';
+      // const gemmaMatch = gemmaText.match(/Nombre cient[íi]fico:\s*([^\n]+)/i);
+      // if (gemmaMatch && gemmaMatch[1]) {
+      //   nameToSearch = gemmaMatch[1].trim();
+      // } else if (result.especie_principal.confianza > 0.70) {
+      //   const candidate = tryParseFromLabel(result.especie_principal.etiqueta);
+      //   nameToSearch = candidate || result.especie_principal.etiqueta.trim();
+      // } else {
+      //   const candidate = tryParseFromLabel(result.especie_principal.etiqueta);
+      //   nameToSearch = candidate || gemmaText.replace(/Nombre cient[íi]fico:/i, '').trim();
+      // }
       if (!aiResult) return;
       let nameToSearch = '';
       if (aiResult.especie_principal.confianza > 0.7) {
@@ -545,8 +671,14 @@ export default function SearchScreen() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <View style={styles.container}>
-        <GestureDetector gesture={tapGesture}>
-          <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" autofocus="on" />
+        <GestureDetector gesture={cameraGestures}>
+          <CameraView
+            ref={camera}
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            autofocus="on"
+            zoom={zoom}
+          />
         </GestureDetector>
 
         {/* ── Indicador de estado ── */}
@@ -562,8 +694,48 @@ export default function SearchScreen() {
           <Text style={styles.overlayText}>Toca para enfocar</Text>
         </View>
 
+        {/* ── Galería de Ráfaga Superior ── */}
+        {burstPhotos.length > 0 && (
+          <View style={styles.burstGallery}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {burstPhotos.map((photo, index) => (
+                <TouchableOpacity key={index} onPress={() => setViewingBurstPhoto(photo.uri)}>
+                  <Image source={{ uri: photo.uri }} style={styles.burstThumbnail} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.processBurstButton}
+              onPress={processBurstSequence}
+              disabled={isTakingBurst}
+            >
+              {isTakingBurst ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.processBurstButtonText}>Analizar ({burstPhotos.length})</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* ── Visor de foto en pantalla completa ── */}
+        {viewingBurstPhoto && (
+          <View style={styles.fullScreenOverlay}>
+            <Image source={{ uri: viewingBurstPhoto }} style={styles.fullScreenImage} resizeMode="contain" />
+            
+            <TouchableOpacity style={styles.closeFullScreenBtn} onPress={() => setViewingBurstPhoto(null)}>
+              <Ionicons name="close" size={32} color="#fff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.deleteFullScreenBtn} onPress={() => removeBurstPhoto(viewingBurstPhoto)}>
+              <Ionicons name="trash" size={32} color="#ff4444" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* ── Botón de captura ── */}
         <View style={styles.captureContainer}>
+
           <TouchableOpacity
             style={[styles.captureButton, isTakingPhoto && styles.captureButtonDisabled]}
             onPress={takePhoto}
@@ -576,10 +748,26 @@ export default function SearchScreen() {
               <View style={styles.captureButtonInner} />
             )}
           </TouchableOpacity>
+
+          {/* Botón de Ráfaga Inteligente */}
+          <TouchableOpacity
+            style={[
+              styles.burstButton,
+              (isTakingPhoto || isTakingBurst) && styles.captureButtonDisabled,
+            ]}
+            onPress={addPhotoToBurst}
+            disabled={isTakingPhoto || isTakingBurst}
+            accessibilityLabel="Toma una foto más para la ráfaga"
+          >
+            {isTakingBurst ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Text style={styles.burstButtonText}>Ráfaga</Text>
+            )}
+          </TouchableOpacity>
         </View>
 
-        {/* ── Overlay de resultado ── */}
-        {renderResult()}
+        {captureSnapshot && renderResult()}
       </View>
     </GestureHandlerRootView>
   );
@@ -644,15 +832,50 @@ const styles = StyleSheet.create({
     fontSize: 14, color: '#2C3E2D', borderWidth: 1, borderColor: '#C8DBC9',
   },
 
-  actionButtonsRow: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
-  actionButtonFull: {
-    flex: 1, backgroundColor: '#4F6F52', paddingVertical: 13, borderRadius: 24,
-    alignItems: 'center', justifyContent: 'center', flexDirection: 'row',
+  burstButton: {
+    position: 'absolute', right: 40, width: 60, height: 60, borderRadius: 30,
+    backgroundColor: '#FF8C00', justifyContent: 'center', alignItems: 'center',
   },
+  burstButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
+
+  burstGallery: {
+    position: 'absolute', top: 160, left: 10, right: 10,
+    backgroundColor: 'rgba(0,0,0,0.5)', padding: 10, borderRadius: 12,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  burstThumbnail: { width: 50, height: 50, borderRadius: 8, marginRight: 8, borderWidth: 1, borderColor: '#fff' },
+  processBurstButton: { backgroundColor: '#4F6F52', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 8, marginLeft: 10 },
+  processBurstButtonText: { color: '#fff', fontWeight: 'bold', fontSize: 13 },
+
+  fullScreenOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'black', zIndex: 100, justifyContent: 'center', alignItems: 'center' },
+  fullScreenImage: { width: '100%', height: '100%' },
+  closeFullScreenBtn: { position: 'absolute', top: 50, right: 20, zIndex: 101, backgroundColor: 'rgba(0,0,0,0.5)', padding: 8, borderRadius: 25 },
+  deleteFullScreenBtn: { position: 'absolute', top: 50, left: 20, zIndex: 101, backgroundColor: 'rgba(0,0,0,0.5)', padding: 8, borderRadius: 25 },
+
+  // Result overlay and card (Duplicates - Commented to avoid errors)
+  // resultOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.88)', zIndex: 10 },
+  // resultCard: { width: '100%', backgroundColor: '#EAF2E3', borderRadius: 32, overflow: 'hidden', maxHeight: '90%' },
+  // resultImage: { width: '100%', height: 300, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
+
+  // tableContainer: { paddingHorizontal: 20, paddingVertical: 16, maxHeight: 200 },
+  // tableRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 12, marginBottom: 4 },
+  // tableRowEven: { backgroundColor: 'transparent' },
+  // tableRowOdd: { backgroundColor: 'rgba(255,255,255,0.5)' },
+  // tableLabel: { fontSize: 14, fontWeight: '600', color: '#3A4D39' },
+  // tableValue: { fontSize: 14, color: '#4F6F52', fontWeight: '400', flex: 1, textAlign: 'right' },
+
+  reviewWarningText: { color: '#D4883A', textAlign: 'center', fontWeight: 'bold', marginTop: 16, fontSize: 14 },
+
+  actionButtonsRow: { flexDirection: 'row', paddingHorizontal: 16, paddingBottom: 14, gap: 10 },
+  actionButtonFull: { flex: 1, backgroundColor: '#4F6F52', paddingVertical: 13, borderRadius: 24, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
   actionButton: { flex: 1, paddingVertical: 13, borderRadius: 24, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
   saveButton: { backgroundColor: '#5B8C5A' },
   uploadButton: { backgroundColor: '#3A4D39' },
   actionButtonText: { color: '#ffffff', fontSize: 13, fontWeight: 'bold', textAlign: 'center' },
+  // actionButton: { flex: 1, paddingVertical: 13, borderRadius: 24, alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
+  // saveButton: { backgroundColor: '#5B8C5A' },
+  // uploadButton: { backgroundColor: '#3A4D39' },
+  // actionButtonText: { color: '#ffffff', fontSize: 13, fontWeight: 'bold', textAlign: 'center' },
   btnIcon: { marginRight: 5 },
 
   closeResultButton: {

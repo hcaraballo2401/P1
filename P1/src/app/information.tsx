@@ -164,19 +164,32 @@ export default function SpeciesDetailScreen() {
 
       // Si nos pasaron un nombre, resolvemos su ID primero
       if (!finalTaxonId && searchName) {
+        const normalize = (value: string) =>
+          value
+            .trim()
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const normalizedSearch = normalize(searchName);
         const searchRes = await fetch(`https://api.inaturalist.org/v1/taxa?q=${encodeURIComponent(searchName)}`);
         if (!searchRes.ok) throw new Error('Error buscando la especie por nombre.');
         const searchJson = await searchRes.json();
         if (!searchJson.results || searchJson.results.length === 0) {
           throw new Error(`No se encontró en iNaturalist la especie: ${searchName}`);
         }
-        
-        // Buscamos coincidencia exacta del nombre científico para mayor precisión
-        const exactMatch = searchJson.results.find(
-          (r: any) => r.name.toLowerCase() === searchName.toLowerCase()
-        );
-        
-        // Si hay coincidencia exacta la usamos, si no caemos en el primer resultado
+
+        const exactMatch = searchJson.results.find((r: any) => {
+          return (
+            normalize(r.name || '') === normalizedSearch ||
+            normalize(r.preferred_common_name || '') === normalizedSearch ||
+            normalize(r.display_name || '') === normalizedSearch
+          );
+        });
+
         const bestMatch = exactMatch || searchJson.results[0];
         finalTaxonId = bestMatch.id.toString();
       }
@@ -225,7 +238,7 @@ export default function SpeciesDetailScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [taxonId, count]);
+  }, [taxonId, count, params.scientificName]);
 
   useEffect(() => {
     startShimmer();
@@ -434,7 +447,7 @@ export default function SpeciesDetailScreen() {
             style={styles.miniMapContainer}
             onPress={() => {
               router.push({
-                pathname: '/regions',
+                pathname: '/discover' as any,
                 params: {
                   taxonId: species.id.toString(),
                   taxonName: species.commonName,
