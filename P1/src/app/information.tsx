@@ -9,11 +9,13 @@ import {
   ScrollView,
   StatusBar,
   TouchableOpacity,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { WebView } from 'react-native-webview';
 
+import type { FichaEspecieResponse } from '../types/api';
 import {
   COLORS,
   INAT_PLACE_ID,
@@ -26,6 +28,15 @@ import {
 } from '../utils/inaturalist';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+const API_BASE_URL = 'https://p1-q8lf.onrender.com';
+const FICHA_ESPECIE_URL = `${API_BASE_URL}/api/v1/identificacion/ficha-especie`;
+
+/** Longitud máxima del resumen tipo Wikipedia antes del botón «Ver más». */
+const MINI_RESUMEN_MAX_CHARS = 280;
+
+/** Tiempo máximo de espera al solicitar la ficha ampliada (la IA puede tardar). */
+const FICHA_IA_TIMEOUT_MS = 55000;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Sub-componentes UI
@@ -136,6 +147,9 @@ export default function SpeciesDetailScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [species, setSpecies] = useState<SpeciesDisplay | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [iaDetailText, setIaDetailText] = useState<string | null>(null);
+  const [iaLoading, setIaLoading] = useState(false);
+  const [iaError, setIaError] = useState<string | null>(null);
   const shimmerAnim = useRef(new Animated.Value(0)).current;
 
   const startShimmer = useCallback(() => {
@@ -148,6 +162,37 @@ export default function SpeciesDetailScreen() {
     ).start();
   }, [shimmerAnim]);
 
+  const buildFallbackSummary = useCallback((s: SpeciesDisplay) => {
+    const lines: string[] = [];
+
+    lines.push(
+      `${s.commonName || s.scientificName} (${s.scientificName}) es un taxón de rango ${s.rank}.`
+    );
+
+    const taxParts: string[] = [];
+    if (s.kingdom) taxParts.push(`Reino: ${s.kingdom}`);
+    if (s.order) taxParts.push(`Orden: ${s.order}`);
+    if (s.family) taxParts.push(`Familia: ${s.family}`);
+    if (taxParts.length) lines.push(taxParts.join(' · ') + '.');
+
+    if (s.conservationLabel) {
+      lines.push(`Estado de conservación reportado: ${s.conservationLabel}.`);
+    }
+
+    if (s.isNative) {
+      lines.push('En iNaturalist figura con estatus de establecimiento: nativa.');
+    } else if (s.isInvasive) {
+      lines.push('En iNaturalist figura con estatus de establecimiento: introducida/invasora.');
+    }
+
+    lines.push(
+      'Nota: no se encontró un resumen de Wikipedia disponible para esta especie en este momento. ' +
+        'Puedes tocar “Ver más con IA” para obtener una ficha ampliada con contexto regional.'
+    );
+
+    return lines.join('\n');
+  }, []);
+
   const fetchSpeciesDetail = useCallback(async () => {
     const searchName = params.scientificName as string;
     if (!taxonId && !searchName) {
@@ -159,6 +204,8 @@ export default function SpeciesDetailScreen() {
     try {
       setIsLoading(true);
       setError(null);
+      setIaDetailText(null);
+      setIaError(null);
 
       let finalTaxonId = taxonId as string;
 
@@ -230,6 +277,11 @@ export default function SpeciesDetailScreen() {
         speciesDisplay.taxonSummary = summary;
       }
 
+      // Fallback: asegurar que haya algún texto siempre
+      if (!speciesDisplay.taxonSummary || !speciesDisplay.taxonSummary.trim()) {
+        speciesDisplay.taxonSummary = buildFallbackSummary(speciesDisplay);
+      }
+
       setSpecies(speciesDisplay);
 
     } catch (err) {
@@ -238,12 +290,80 @@ export default function SpeciesDetailScreen() {
     } finally {
       setIsLoading(false);
     }
-  }, [taxonId, count, params.scientificName]);
+  }, [taxonId, count, params.scientificName, buildFallbackSummary]);
 
   useEffect(() => {
     startShimmer();
     fetchSpeciesDetail();
   }, [startShimmer, fetchSpeciesDetail]);
+
+  const fetchFichaIa = useCallback(async () => {
+    if (!species) return;
+    setIaLoading(true);
+    setIaError(null);
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), FICHA_IA_TIMEOUT_MS);
+    try {
+      const res = await fetch(FICHA_ESPECIE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          taxon_id: species.id,
+          nombre_cientifico: species.scientificName,
+          nombre_comun: species.commonName || null,
+          resumen_base: species.taxonSummary ?? null,
+        }),
+      });
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error(
+            'El servidor aún no tiene habilitada la ruta de “Ver más con IA”. ' +
+              'Debes redeplegar el backend con el endpoint /api/v1/identificacion/ficha-especie.'
+          );
+        }
+        // Intentar extraer detalle JSON estilo FastAPI: {"detail": "..."}
+        const errText = await res.text().catch(() => '');
+        try {
+          const asJson = JSON.parse(errText) as { detail?: string };
+          if (asJson?.detail) throw new Error(asJson.detail);
+        } catch {
+          // ignore parse errors, fallback to raw text
+        }
+        throw new Error(errText || `Error del servidor (${res.status})`);
+      }
+      const json = (await res.json()) as FichaEspecieResponse;
+      if (!json.texto_ia?.trim()) {
+        throw new Error('La respuesta de la IA llegó vacía.');
+      }
+      setIaDetailText(json.texto_ia.trim());
+    } catch (e) {
+      const msg =
+        e instanceof Error
+          ? e.name === 'AbortError'
+            ? 'La solicitud tardó demasiado. Reintenta cuando tengas buena conexión.'
+            : e.message
+          : 'No se pudo cargar la información ampliada.';
+      setIaError(msg);
+    } finally {
+      clearTimeout(t);
+      setIaLoading(false);
+    }
+  }, [species]);
+
+  const miniResumen = useMemo(() => {
+    const full = (species?.taxonSummary ?? '').trim();
+    if (!full) {
+      return '';
+    }
+    if (full.length <= MINI_RESUMEN_MAX_CHARS) {
+      return full;
+    }
+    const cut = full.slice(0, MINI_RESUMEN_MAX_CHARS).trim();
+    const lastSpace = cut.lastIndexOf(' ');
+    const safe = lastSpace > 40 ? cut.slice(0, lastSpace) : cut;
+    return `${safe}…`;
+  }, [species?.taxonSummary]);
 
   // Generar HTML para el minimapa
   const miniMapHtml = useMemo(() => {
@@ -421,12 +541,49 @@ export default function SpeciesDetailScreen() {
         </View>
 
         <View style={styles.card}>
-          {species.taxonSummary ? (
-            <Text style={styles.taxonSummary}>{species.taxonSummary}</Text>
+          <Text style={styles.cardTitle}>Resumen</Text>
+          {miniResumen ? (
+            <Text style={styles.taxonSummary}>{miniResumen}</Text>
           ) : (
             <Text style={styles.taxonSummary}>
-              Resumen taxonómico no disponible en la API para esta especie.
+              Resumen breve no disponible (Wikipedia / iNaturalist). Puedes pedir una ficha
+              ampliada con IA abajo.
             </Text>
+          )}
+
+          {!iaDetailText && (
+            <TouchableOpacity
+              style={[styles.verMasButton, iaLoading && styles.verMasButtonDisabled]}
+              onPress={fetchFichaIa}
+              disabled={iaLoading}
+              activeOpacity={0.85}
+            >
+              {iaLoading ? (
+                <ActivityIndicator size="small" color={COLORS.accent} />
+              ) : (
+                <>
+                  <Ionicons name="sparkles-outline" size={18} color={COLORS.accent} />
+                  <Text style={styles.verMasButtonText}>Ver más con IA</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          )}
+
+          {iaError && (
+            <View style={styles.iaErrorBox}>
+              <Text style={styles.iaErrorText}>{iaError}</Text>
+              <TouchableOpacity onPress={fetchFichaIa} style={styles.iaRetryInline}>
+                <Text style={styles.iaRetryInlineText}>Reintentar</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {iaDetailText && (
+            <>
+              <View style={styles.divider} />
+              <Text style={styles.cardTitle}>Información ampliada (IA)</Text>
+              <Text style={styles.iaDetailText}>{iaDetailText}</Text>
+            </>
           )}
 
           <View style={styles.divider} />
@@ -625,6 +782,54 @@ const styles = StyleSheet.create({
     color: COLORS.textSecondary,
     lineHeight: 20,
     marginBottom: 12,
+  },
+  verMasButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 4,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: COLORS.accent,
+    backgroundColor: COLORS.primaryMuted,
+  },
+  verMasButtonDisabled: {
+    opacity: 0.65,
+  },
+  verMasButtonText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: COLORS.accent,
+  },
+  iaErrorBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: COLORS.warningMuted,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+  iaErrorText: {
+    fontSize: 13,
+    color: COLORS.textSecondary,
+    lineHeight: 20,
+    marginBottom: 8,
+  },
+  iaRetryInline: {
+    alignSelf: 'flex-start',
+  },
+  iaRetryInlineText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: COLORS.accent,
+  },
+  iaDetailText: {
+    fontSize: 14,
+    color: COLORS.textPrimary,
+    lineHeight: 22,
   },
   divider: {
     height: 1,

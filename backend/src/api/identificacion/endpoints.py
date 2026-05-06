@@ -15,10 +15,12 @@ import base64
 import logging
 
 import httpx
-from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, HTTPException, UploadFile
 
 from src.api.identificacion.schemas import (
     CandidatoEspecieSchema,
+    FichaEspecieRequestSchema,
+    FichaEspecieResponseSchema,
     IdentificacionResponseSchema,
 )
 from src.identificacion_animal.casos_de_uso import identificar_animal
@@ -77,6 +79,92 @@ async def consultar_gemma(imagen_bytes: bytes, mime_type: str, api_key: str | No
     except Exception as e:
         logger.error("Error consultando Gemma: %s", e)
         return "Error al consultar Gemma"
+
+
+async def consultar_gemma_ficha_especie(
+    *,
+    taxon_id: int | None,
+    nombre_cientifico: str,
+    nombre_comun: str | None,
+    resumen_base: str | None,
+    api_key: str | None,
+) -> str:
+    """Genera una ficha ampliada en texto (sin imagen) vía Gemma en Novita."""
+    if not api_key:
+        return "API Key de Novita no configurada en el servidor."
+
+    id_line = str(taxon_id) if taxon_id is not None else "no provisto"
+    comun = nombre_comun or "no provisto"
+    resumen = (resumen_base or "").strip() or "no disponible"
+
+    user_prompt = (
+        "Eres un biólogo experto en biodiversidad de la Guayana Venezolana "
+        "(estados Bolívar, Amazonas y Delta Amacuro).\n\n"
+        "Datos de la especie:\n"
+        f"- ID taxonómico (iNaturalist): {id_line}\n"
+        f"- Nombre científico: {nombre_cientifico}\n"
+        f"- Nombre común: {comun}\n"
+        f"- Resumen de referencia (puede ser incompleto): {resumen}\n\n"
+        "Redacta una ficha ampliada en español para el público general. "
+        "Usa secciones claras con títulos en una sola línea terminada en dos puntos, "
+        "por ejemplo: \"Descripción general:\", \"Hábitat y distribución:\", "
+        "\"Ecología y comportamiento:\", \"Conservación:\", \"En la región:\".\n"
+        "Si no hay datos fiables sobre un apartado, indica que la información es limitada. "
+        "No inventes estudios, citas ni estadísticas. "
+        "Extensión orientativa: 350 a 550 palabras."
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.novita.ai/v3/openai/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "google/gemma-4-31b-it",
+                    "messages": [
+                        {"role": "user", "content": user_prompt},
+                    ],
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data["choices"][0]["message"]["content"]
+    except Exception as e:
+        logger.error("Error consultando Gemma (ficha especie): %s", e)
+        return "No se pudo generar la ficha ampliada en este momento. Intenta de nuevo más tarde."
+
+
+@router.post(
+    "/ficha-especie",
+    response_model=FichaEspecieResponseSchema,
+    summary="Ficha ampliada de una especie (IA, solo texto)",
+    description=(
+        "Recibe nombre científico (y opcionalmente ID, nombre común y resumen corto) "
+        "y devuelve un texto explicativo generado por el modelo."
+    ),
+    responses={
+        200: {"description": "Texto generado correctamente (o mensaje de error operativo)."},
+    },
+)
+async def ficha_especie_endpoint(
+    body: FichaEspecieRequestSchema = Body(...),
+) -> FichaEspecieResponseSchema:
+    """
+    POST /api/v1/identificacion/ficha-especie
+    """
+    settings = get_settings()
+    nombre_comun_clean = (body.nombre_comun or "").strip()
+    texto = await consultar_gemma_ficha_especie(
+        taxon_id=body.taxon_id,
+        nombre_cientifico=body.nombre_cientifico.strip(),
+        nombre_comun=nombre_comun_clean or None,
+        resumen_base=body.resumen_base,
+        api_key=settings.novita_api_key,
+    )
+    return FichaEspecieResponseSchema(texto_ia=texto)
 
 
 @router.post(

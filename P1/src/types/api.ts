@@ -15,6 +15,19 @@ export interface CandidatoEspecie {
   confianza: number;
 }
 
+/** Cuerpo POST /api/v1/identificacion/ficha-especie. */
+export interface FichaEspecieRequest {
+  taxon_id?: number | null;
+  nombre_cientifico: string;
+  nombre_comun?: string | null;
+  resumen_base?: string | null;
+}
+
+/** Respuesta POST /api/v1/identificacion/ficha-especie. */
+export interface FichaEspecieResponse {
+  texto_ia: string;
+}
+
 /** Respuesta completa del endpoint POST /api/v1/identificacion/identificar. */
 export interface IdentificacionResponse {
   /** Animal identificado con mayor confianza. */

@@ -10,6 +10,48 @@ Estos modelos definen el contrato de la API:
 from pydantic import BaseModel, Field
 
 
+class FichaEspecieRequestSchema(BaseModel):
+    """
+    Cuerpo para solicitar una ficha ampliada generada por IA a partir del taxón conocido.
+
+    Attributes:
+        taxon_id: ID en iNaturalist (opcional, solo para trazabilidad en el prompt).
+        nombre_cientifico: Nombre binomial o taxonómico de la especie.
+        nombre_comun: Nombre vernáculo conocido por la app o iNaturalist.
+        resumen_base: Texto corto de contexto (p. ej. extracto de Wikipedia / iNat).
+    """
+
+    taxon_id: int | None = Field(
+        default=None,
+        description="Identificador de taxón en iNaturalist.",
+        examples=[84286],
+    )
+    nombre_cientifico: str = Field(
+        ...,
+        min_length=1,
+        description="Nombre científico de la especie.",
+        examples=["Eunectes murinus"],
+    )
+    nombre_comun: str | None = Field(
+        default=None,
+        description="Nombre común preferido.",
+        examples=["Anaconda verde"],
+    )
+    resumen_base: str | None = Field(
+        default=None,
+        description="Resumen breve existente para enriquecer el contexto del modelo.",
+    )
+
+
+class FichaEspecieResponseSchema(BaseModel):
+    """Respuesta JSON con la narrativa extendida producida por el modelo."""
+
+    texto_ia: str = Field(
+        ...,
+        description="Texto en español con la ficha ampliada.",
+    )
+
+
 class CandidatoEspecieSchema(BaseModel):
     """
     Representa un candidato de especie en la respuesta de la API.
